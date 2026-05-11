@@ -35,9 +35,6 @@ def main() -> None:
             print("Updating Status to AI Reading...")
             notion.mark_reading(paper.page_id)
 
-            print("Deleting existing page blocks...")
-            notion.delete_all_blocks(paper.page_id)
-
             print(f"Fetching paper content: {paper.website}")
             paper_text = fetch_paper_text(paper.website, settings.paper_text_limit)
 
@@ -47,6 +44,14 @@ def main() -> None:
                 website=paper.website,
                 paper_text=paper_text,
             )
+
+            paper_title = analysis.get("paper_title")
+            if paper_title:
+                print(f"Updating page title: {paper_title}")
+                notion.update_title(paper.page_id, paper_title)
+
+            print("Deleting existing page blocks...")
+            notion.delete_all_blocks(paper.page_id)
 
             print("Writing structured notes to Notion...")
             notion.write_analysis(paper.page_id, analysis)

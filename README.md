@@ -2,26 +2,76 @@
 
 Paper AI Reader is a Python automation tool for turning papers saved in a Notion database into structured AI-generated research notes.
 
-It reads pending papers from Notion, extracts text from webpages or PDFs, sends the content to the OpenAI API, and writes a structured Chinese analysis back to the original Notion page.
+It reads papers from Notion, extracts text from webpages or PDFs, asks the OpenAI API to analyze the paper in Chinese, rewrites incorrect Notion page titles with the real paper title, and writes structured notes back to the original Notion page.
 
 ## Features
 
 - Batch-read paper entries from a Notion database
-- Skip papers that have already been processed
+- Process only papers whose `Status` is `TBD` or `AI Reading`
+- Skip papers marked `AI Read Done`, `Human Reading`, or `DONE`
 - Extract readable text from webpages and PDF URLs
-- Generate structured research notes with the OpenAI API
-- Write the generated notes back to Notion
+- Identify the real paper title from the fetched paper content
+- Rewrite the Notion page `Title` with the real paper title
+- Generate structured Chinese research notes with the OpenAI API
+- Delete existing Notion page blocks only after AI analysis succeeds
+- Write generated notes back to Notion
 - Update each paper's reading status automatically
 - Support Notion's newer `data_sources` query flow
 
-## What It Generates
+## Notion Database Requirements
+
+Your Notion database must contain these exact properties:
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `Title` | Title | Notion page title. The script can rewrite it with the real paper title. |
+| `Website` | URL | Paper webpage or PDF URL. |
+| `Status` | Status | Reading workflow status. |
+
+The `Status` property should use these English status options:
+
+| Status | Meaning | Script Behavior |
+| --- | --- | --- |
+| `TBD` | Nothing has been done yet. | The script processes this page. |
+| `AI Reading` | The script is currently processing, or a previous run stopped midway. | The script can process/resume this page. |
+| `AI Read Done` | AI reading is complete. | The script skips this page. |
+| `Human Reading` | Reserved for manual reading. | The script skips this page. |
+| `DONE` | Manually completed. | The script skips this page. |
+
+The script only writes these status values itself:
+
+- `AI Reading`
+- `AI Read Done`
+
+It does not create or write any Chinese status labels.
+
+## Pipeline
+
+Running `python main.py` does the following:
+
+1. Query the Notion database.
+2. Find pages whose `Status` is `TBD` or `AI Reading`.
+3. Skip pages whose `Status` is `AI Read Done`, `Human Reading`, or `DONE`.
+4. Read the page ID, current `Title`, and `Website`.
+5. Update `Status` to `AI Reading`.
+6. Fetch paper text from `Website`.
+7. Analyze the paper with the OpenAI API.
+8. Extract the real paper title from the paper content.
+9. Rewrite the Notion page `Title` with the real paper title.
+10. Delete all existing page blocks, including Notion Clipper content.
+11. Write structured AI-generated notes back to the Notion page.
+12. Update `Status` to `AI Read Done`.
+
+If fetching, analysis, deleting, writing, or status update fails, the script prints the error and continues with the next paper. Existing page blocks are not deleted until after AI analysis succeeds.
+
+## Generated Notes
 
 For each paper, the tool generates:
 
-- Paper summary
-- Research inspiration for the user's topic
-- Relevance rating
-- Short rating explanation
+- Chinese paper summary
+- Chinese research inspiration for the user's topic
+- Relevance rating from 1 to 5 stars
+- Chinese rating explanation
 - Code availability
 - GitHub or code URL if found
 - A personal notes section
@@ -34,6 +84,48 @@ The built-in research focus is:
 - Human-Robot Interaction
 - Emotion-aware interaction
 - Generating robot behavior or control commands from human emotional input
+
+## Output Format
+
+The Notion page content is rewritten in this format:
+
+```markdown
+## 🔍 总结
+
+<AI 生成的中文论文总结>
+
+## 💡 对我的研究的启发
+
+<论文与个人研究方向的联系>
+
+## ⭐ 与我的研究相关性
+
+★★★★☆
+<评分理由>
+
+## 🧪 代码可用性
+
+是 / 否
+GitHub：<代码链接>
+
+## 🧠 我的笔记
+
+（自己写）
+```
+
+The OpenAI response is requested as structured JSON with this shape:
+
+```json
+{
+  "paper_title": "Real paper title from the paper content",
+  "summary": "...",
+  "idea": "...",
+  "rating": 1,
+  "reason": "...",
+  "code_available": true,
+  "code_url": ""
+}
+```
 
 ## Project Structure
 
@@ -52,24 +144,6 @@ The built-in research focus is:
 └── test_blocks.py
 ```
 
-## Notion Database Requirements
-
-Your Notion database must contain the following properties:
-
-| Property | Type | Description |
-| --- | --- | --- |
-| `Title` | Title | Paper title |
-| `Website` | URL | Paper webpage or PDF URL |
-| `Status` | Select or Status | Reading status |
-
-The tool skips pages whose `Status` is one of:
-
-- `AI Read Done`
-- `已完成`
-- `Human Reading`
-
-All other statuses are treated as pending papers.
-
 ## Installation
 
 Create and activate a virtual environment:
@@ -87,13 +161,7 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Copy the example environment file:
-
-```bash
-cp .env.example .env
-```
-
-Then fill in the required values:
+Create or update `.env`:
 
 ```bash
 NOTION_TOKEN=secret_your_notion_integration_token
@@ -124,123 +192,38 @@ Run:
 python main.py
 ```
 
-The pipeline:
-
-1. Query the Notion database
-2. Find pending paper pages
-3. Update the page status to `AI Reading`
-4. Delete existing page blocks
-5. Fetch paper text from the webpage or PDF URL
-6. Generate structured analysis with OpenAI
-7. Write the analysis back to Notion
-8. Update the page status to `AI Read Done`
-
-If fetching, analysis, or writing fails, the script prints the error and continues with the next paper.
-
-## Output Format
-
-The Notion page will be rewritten in roughly this format:
-
-```markdown
-## 🔍 总结
-
-<AI-generated Chinese summary>
-
-## 💡 对我的研究的启发
-
-<How this paper relates to the research topic>
-
-## ⭐ 与我的研究相关性
-
-★★★★☆
-<Short reason>
-
-## 🧪 代码可用性
-
-是 / 否
-GitHub：<code URL>
-
-## 🧠 我的笔记
-
-（自己写）
-```
-
-## Notes
-
-- `.env` contains secrets and should never be committed.
-- The current pipeline deletes existing Notion page blocks before fetching and analyzing the paper. Test on a sample page first.
-- `test_notion.py` and `test_blocks.py` are manual debugging scripts and will call the Notion API directly.
-- PDF text extraction uses `pypdf`; complex PDF layouts may not be extracted perfectly.
-
-## Development
-
-Check that the Python files compile:
+For local validation without calling Notion or OpenAI:
 
 ```bash
 python -m compileall main.py paper_ai_reader test_blocks.py test_notion.py
 ```
 
-Dependencies are listed in:
+## Notes
 
-```text
-requirements.txt
-```
+- `.env` contains secrets and should never be committed.
+- Notion page blocks are deleted only after paper text has been fetched and AI analysis has succeeded.
+- `test_notion.py` and `test_blocks.py` are manual debugging scripts and call the Notion API directly.
+- PDF text extraction uses `pypdf`; complex PDF layouts may not be extracted perfectly.
 
 ---
 
 # Paper AI Reader 中文说明
 
-Paper AI Reader 是一个用于自动阅读论文的 Python 工具。它会从 Notion 数据库中读取待处理论文，抓取网页或 PDF 内容，调用 OpenAI API 生成中文结构化笔记，并把结果写回对应的 Notion 页面。
-
-这个项目适合用来维护个人论文阅读库，尤其适合需要持续把论文内容和自己研究方向关联起来的场景。
+Paper AI Reader 是一个用于自动阅读论文的 Python 工具。它会从 Notion 数据库中读取待处理论文，抓取网页或 PDF 内容，调用 OpenAI API 生成中文结构化笔记，识别论文真实标题，并把标题和笔记写回对应的 Notion 页面。
 
 ## 功能
 
 - 从 Notion 数据库批量读取论文条目
-- 根据 `Status` 自动跳过已完成论文
+- 只处理 `Status` 为 `TBD` 或 `AI Reading` 的页面
+- 跳过 `AI Read Done`、`Human Reading`、`DONE`
 - 支持抓取网页正文和 PDF 文本
+- 从论文正文中识别真实论文标题
+- 自动重写 Notion 页面 `Title`
 - 使用 OpenAI API 生成中文论文分析
+- AI 分析成功后才删除页面已有 blocks
 - 将结构化笔记写回 Notion 页面
 - 自动更新 Notion 页面阅读状态
 - 支持 Notion 新版 `data_sources` 查询方式
-
-## 分析内容
-
-每篇论文会生成以下内容：
-
-- 论文总结
-- 对个人研究方向的启发
-- 与研究方向的相关性评分
-- 评分理由
-- 代码是否可用
-- GitHub 或代码链接
-- 个人补充笔记区域
-
-当前内置研究方向包括：
-
-- LLM
-- ROS2
-- TurtleBot3
-- Human-Robot Interaction
-- 情绪感知交互
-- 从人的情感输入生成机器人行为或控制指令
-
-## 项目结构
-
-```text
-.
-├── main.py
-├── requirements.txt
-├── .env.example
-├── paper_ai_reader
-│   ├── __init__.py
-│   ├── analyzer.py
-│   ├── config.py
-│   ├── fetcher.py
-│   └── notion_service.py
-├── test_notion.py
-└── test_blocks.py
-```
 
 ## Notion 数据库要求
 
@@ -248,65 +231,28 @@ Notion 数据库需要包含以下属性：
 
 | 属性名 | 类型 | 说明 |
 | --- | --- | --- |
-| `Title` | Title | 论文标题 |
-| `Website` | URL | 论文网页或 PDF 地址 |
-| `Status` | Select 或 Status | 阅读状态 |
+| `Title` | Title | 页面标题，程序会用识别出的真实论文标题重写它。 |
+| `Website` | URL | 论文网页或 PDF 地址。 |
+| `Status` | Status | 阅读流程状态。 |
 
-程序会跳过以下状态的页面：
+`Status` 字段应使用以下英文选项：
 
+| Status | 含义 | 程序行为 |
+| --- | --- | --- |
+| `TBD` | 尚未处理。 | 程序会处理。 |
+| `AI Reading` | AI 正在处理，或上一次运行中断。 | 程序会处理/续跑。 |
+| `AI Read Done` | AI 阅读完成。 | 程序会跳过。 |
+| `Human Reading` | 人工阅读中。 | 程序会跳过。 |
+| `DONE` | 手动完成。 | 程序会跳过。 |
+
+程序自己只会写入这些状态：
+
+- `AI Reading`
 - `AI Read Done`
-- `已完成`
-- `Human Reading`
 
-其他状态的页面会被视为待处理论文。
+程序不会创建或写入中文状态标签。
 
-## 安装
-
-创建并激活虚拟环境：
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-安装依赖：
-
-```bash
-pip install -r requirements.txt
-```
-
-## 配置
-
-复制环境变量示例文件：
-
-```bash
-cp .env.example .env
-```
-
-然后在 `.env` 中填写：
-
-```bash
-NOTION_TOKEN=secret_your_notion_integration_token
-NOTION_DATABASE_ID=your_notion_database_id
-OPENAI_API_KEY=sk-your_openai_api_key
-```
-
-可选配置：
-
-```bash
-OPENAI_MODEL=gpt-4o-mini
-PAPER_TEXT_LIMIT=50000
-```
-
-说明：
-
-- `NOTION_TOKEN` 是 Notion integration token
-- `NOTION_DATABASE_ID` 是 Notion 数据库 ID
-- `OPENAI_API_KEY` 是 OpenAI API key
-- `OPENAI_MODEL` 默认使用 `gpt-4o-mini`
-- `PAPER_TEXT_LIMIT` 用于限制发送给 OpenAI 的论文文本长度
-
-## 使用
+## 运行流程
 
 运行：
 
@@ -314,22 +260,25 @@ PAPER_TEXT_LIMIT=50000
 python main.py
 ```
 
-运行流程：
+流程：
 
-1. 查询 Notion 数据库
-2. 找到待处理论文页面
-3. 将页面状态更新为 `AI Reading`
-4. 删除页面中已有 blocks
-5. 抓取论文网页或 PDF 文本
-6. 调用 OpenAI 生成结构化分析
-7. 将分析结果写回 Notion 页面
-8. 将页面状态更新为 `AI Read Done`
+1. 查询 Notion 数据库。
+2. 找到 `Status` 为 `TBD` 或 `AI Reading` 的论文页面。
+3. 读取页面 ID、当前 `Title` 和 `Website`。
+4. 将 `Status` 更新为 `AI Reading`。
+5. 抓取论文网页或 PDF 文本。
+6. 调用 OpenAI 生成结构化分析。
+7. 从论文正文中提取真实论文标题。
+8. 用真实论文标题重写 Notion 页面 `Title`。
+9. 删除页面中已有 blocks，包括 Notion Clipper 导入内容。
+10. 将分析结果写回 Notion 页面。
+11. 将 `Status` 更新为 `AI Read Done`。
 
-如果抓取、分析或写入过程中失败，程序会打印错误信息并继续处理下一篇论文。
+如果抓取、分析、删除、写入或状态更新失败，程序会打印错误并继续下一篇。页面内容只会在 AI 分析成功后被删除。
 
 ## 输出格式
 
-写回 Notion 的内容大致如下：
+写回 Notion 的内容如下：
 
 ```markdown
 ## 🔍 总结
@@ -353,25 +302,4 @@ GitHub：<代码链接>
 ## 🧠 我的笔记
 
 （自己写）
-```
-
-## 注意事项
-
-- `.env` 中包含密钥，不要提交到 GitHub。
-- 当前程序会在抓取和分析前删除页面已有 blocks，建议先在测试页面中确认流程。
-- `test_notion.py` 和 `test_blocks.py` 是手动调试脚本，会直接访问 Notion API。
-- PDF 文本提取依赖 `pypdf`，复杂版式论文可能存在提取不完整的情况。
-
-## 开发
-
-检查 Python 文件是否能正常编译：
-
-```bash
-python -m compileall main.py paper_ai_reader test_blocks.py test_notion.py
-```
-
-依赖列表见：
-
-```text
-requirements.txt
 ```

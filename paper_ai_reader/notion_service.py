@@ -8,9 +8,12 @@ from notion_client import Client
 from notion_client.errors import RequestTimeoutError
 
 
-DONE_STATUS = "AI Read Done"
+TBD_STATUS = "TBD"
 READING_STATUS = "AI Reading"
-SKIP_STATUSES = {DONE_STATUS, "已完成", "Human Reading"}
+DONE_STATUS = "AI Read Done"
+HUMAN_READING_STATUS = "Human Reading"
+MANUAL_DONE_STATUS = "DONE"
+PROCESSABLE_STATUSES = {TBD_STATUS, READING_STATUS}
 TITLE_PROPERTY = "Title"
 WEBSITE_PROPERTY = "Website"
 STATUS_PROPERTY = "Status"
@@ -69,7 +72,7 @@ class NotionPaperService:
 
             for page in response.get("results", []):
                 paper_page = self._parse_page(page)
-                if paper_page.status not in SKIP_STATUSES:
+                if paper_page.status in PROCESSABLE_STATUSES:
                     yield paper_page
 
             if not response.get("has_more"):
@@ -130,6 +133,24 @@ class NotionPaperService:
         blocks = build_analysis_blocks(analysis)
         for batch in chunked(blocks, MAX_APPEND_CHILDREN):
             self.notion.blocks.children.append(block_id=page_id, children=batch)
+
+    def update_title(self, page_id: str, title: str) -> None:
+        clean_title = title.strip()
+        if not clean_title:
+            return
+        self.notion.pages.update(
+            page_id=page_id,
+            properties={
+                TITLE_PROPERTY: {
+                    "title": [
+                        {
+                            "type": "text",
+                            "text": {"content": clean_title[:RICH_TEXT_LIMIT]},
+                        }
+                    ]
+                }
+            },
+        )
 
     def mark_reading(self, page_id: str) -> None:
         self.update_status(page_id, READING_STATUS)

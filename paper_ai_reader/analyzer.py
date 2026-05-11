@@ -17,7 +17,8 @@ SYSTEM_PROMPT = """你是一个帮助机器人方向研究者阅读论文的中�
 - 从人的情感输入生成机器人行为/控制指令
 
 请重点分析论文如何启发、支持或迁移到上述研究方向。
-除 GitHub/code URL 外，所有字段内容必须使用中文。
+除 paper_title 和 GitHub/code URL 外，所有字段内容必须使用中文。
+paper_title 必须是从论文正文中识别出的真实论文标题，不要翻译论文标题。
 只返回符合 schema 的有效 JSON。
 """
 
@@ -25,6 +26,10 @@ SYSTEM_PROMPT = """你是一个帮助机器人方向研究者阅读论文的中�
 ANALYSIS_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
+        "paper_title": {
+            "type": "string",
+            "description": "从论文正文中识别出的真实论文标题，保留原文标题，不要翻译。",
+        },
         "summary": {
             "type": "string",
             "description": "中文论文总结，聚焦方法、贡献与发现。",
@@ -51,6 +56,7 @@ ANALYSIS_SCHEMA: dict[str, Any] = {
         },
     },
     "required": [
+        "paper_title",
         "summary",
         "idea",
         "rating",
@@ -149,6 +155,7 @@ def normalize_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
         rating = 1
 
     return {
+        "paper_title": str(analysis.get("paper_title") or "").strip(),
         "summary": str(analysis.get("summary") or "").strip(),
         "idea": str(analysis.get("idea") or "").strip(),
         "rating": min(5, max(1, rating)),
