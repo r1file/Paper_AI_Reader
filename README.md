@@ -2,7 +2,44 @@
 
 Paper AI Reader is a Python automation tool for turning papers saved in a Notion database into structured AI-generated research notes.
 
-It reads papers from Notion, extracts text from webpages or PDFs, asks the OpenAI API to analyze the paper in Chinese, rewrites incorrect Notion page titles with the real paper title, and writes structured notes back to the original Notion page.
+It reads papers from Notion, extracts text from webpages or PDFs, asks the configured AI API to analyze the paper in the selected output language, rewrites incorrect Notion page titles with the real paper title, and writes structured notes back to the original Notion page.
+
+## Desktop GUI
+
+Paper AI Reader includes a modern cross-platform desktop GUI built with PySide6. It works on macOS, Linux, and Windows.
+
+Start the GUI:
+
+```bash
+python gui.py
+```
+
+The GUI has three main pages:
+
+- `Dashboard`: start/stop the paper-reading pipeline, view current operation, runtime logs, and the AI conversation/status stream.
+- `Prompt`: choose the reading output language and edit the paper-reading prompt.
+- `Setting`: edit Notion API settings, compatible AI provider settings, model name, and paper text limit.
+
+The UI supports:
+
+- Chinese
+- Japanese
+- English
+
+The Dashboard conversation panel shows the system prompt, user request, model JSON response, and runtime status. It does not display hidden model reasoning chains.
+
+The Prompt and Setting pages can open these files in your default external editor, such as Notepad, VS Code, or another OS-associated editor:
+
+- `config/gui_config.xml`
+- `prompts/gui/<language>.xml`
+
+For compatible AI API providers, set:
+
+- `AI API Key`
+- `AI Model`
+- `Compatible API Base URL`
+
+Leave `Compatible API Base URL` empty to use OpenAI's default API endpoint. For OpenAI-compatible providers, use their `/v1` base URL.
 
 ## Features
 
@@ -12,10 +49,14 @@ It reads papers from Notion, extracts text from webpages or PDFs, asks the OpenA
 - Extract readable text from webpages and PDF URLs
 - Identify the real paper title from the fetched paper content
 - Rewrite the Notion page `Title` with the real paper title
-- Generate structured Chinese research notes with the OpenAI API
+- Generate structured research notes with the configured AI API
 - Delete existing Notion page blocks only after AI analysis succeeds
 - Write generated notes back to Notion
 - Update each paper's reading status automatically
+- GUI Dashboard, Prompt, and Setting pages
+- UI localization for Chinese, Japanese, and English
+- Prompt presets for Chinese, Japanese, and English reading outputs
+- Compatible AI provider configuration through `base_url`
 - Support Notion's newer `data_sources` query flow
 
 ## Notion Database Requirements
@@ -68,10 +109,10 @@ If fetching, analysis, deleting, writing, or status update fails, the script pri
 
 For each paper, the tool generates:
 
-- Chinese paper summary
-- Chinese research inspiration for the user's topic
+- Paper summary in the selected output language
+- Research inspiration in the selected output language
 - Relevance rating from 1 to 5 stars
-- Chinese rating explanation
+- Rating explanation in the selected output language
 - Code availability
 - GitHub or code URL if found
 - A personal notes section
@@ -133,6 +174,14 @@ The OpenAI response is requested as structured JSON with this shape:
 .
 ├── main.py
 ├── requirements.txt
+├── config
+│   ├── cli_config.example.xml
+│   └── gui_config.example.xml
+├── prompts
+│   └── default
+│       ├── zh.xml
+│       ├── ja.xml
+│       └── en.xml
 ├── .env.example
 ├── paper_ai_reader
 │   ├── __init__.py
@@ -161,28 +210,27 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Create or update `.env`:
+Configuration is XML-first. The CLI and GUI use separate XML files:
+
+- CLI: `config/cli_config.xml`
+- GUI: `config/gui_config.xml`
+
+Create them from the examples:
 
 ```bash
-NOTION_TOKEN=secret_your_notion_integration_token
-NOTION_DATABASE_ID=your_notion_database_id
-OPENAI_API_KEY=sk-your_openai_api_key
+cp config/cli_config.example.xml config/cli_config.xml
+cp config/gui_config.example.xml config/gui_config.xml
 ```
 
-Optional settings:
+Then edit the XML values for Notion, AI provider, model, text limit, UI language, theme, and prompt language. `.env` is only kept as a backward-compatible fallback and is no longer the primary configuration path.
 
-```bash
-OPENAI_MODEL=gpt-4o-mini
-PAPER_TEXT_LIMIT=50000
-```
+Prompt files are also XML-based:
 
-Configuration notes:
+- Default prompts: `prompts/default/zh.xml`, `prompts/default/ja.xml`, `prompts/default/en.xml`
+- CLI custom prompts: `prompts/cli/<language>.xml`
+- GUI custom prompts: `prompts/gui/<language>.xml`
 
-- `NOTION_TOKEN`: your Notion integration token
-- `NOTION_DATABASE_ID`: your Notion database ID
-- `OPENAI_API_KEY`: your OpenAI API key
-- `OPENAI_MODEL`: defaults to `gpt-4o-mini`
-- `PAPER_TEXT_LIMIT`: maximum number of extracted paper characters sent to OpenAI
+When you switch the prompt output language, the app reads the matching XML file. If no custom prompt XML exists yet, it falls back to `prompts/default/<language>.xml`.
 
 ## Usage
 
@@ -190,6 +238,12 @@ Run:
 
 ```bash
 python main.py
+```
+
+Or start the GUI:
+
+```bash
+python gui.py
 ```
 
 For local validation without calling Notion or OpenAI:
@@ -200,7 +254,8 @@ python -m compileall main.py paper_ai_reader test_blocks.py test_notion.py
 
 ## Notes
 
-- `.env` contains secrets and should never be committed.
+- XML config files under `config/cli_config.xml` and `config/gui_config.xml` contain secrets and should never be committed.
+- Custom prompt XML under `prompts/cli/` and `prompts/gui/` is local and ignored by git.
 - Notion page blocks are deleted only after paper text has been fetched and AI analysis has succeeded.
 - `test_notion.py` and `test_blocks.py` are manual debugging scripts and call the Notion API directly.
 - PDF text extraction uses `pypdf`; complex PDF layouts may not be extracted perfectly.
@@ -209,7 +264,52 @@ python -m compileall main.py paper_ai_reader test_blocks.py test_notion.py
 
 # Paper AI Reader 中文说明
 
-Paper AI Reader 是一个用于自动阅读论文的 Python 工具。它会从 Notion 数据库中读取待处理论文，抓取网页或 PDF 内容，调用 OpenAI API 生成中文结构化笔记，识别论文真实标题，并把标题和笔记写回对应的 Notion 页面。
+Paper AI Reader 是一个用于自动阅读论文的 Python 工具。它会从 Notion 数据库中读取待处理论文，抓取网页或 PDF 内容，调用配置的 AI API 生成所选语言的结构化笔记，识别论文真实标题，并把标题和笔记写回对应的 Notion 页面。
+
+## 桌面 GUI
+
+项目现在包含一个基于 PySide6 的现代桌面 GUI，可在 macOS、Linux、Windows 上运行。
+
+启动 GUI：
+
+```bash
+python gui.py
+```
+
+GUI 主要分为三个页面：
+
+- `Dashboard`：启动/停止论文阅读流程，显示当前操作、运行日志、AI 对话和状态流。
+- `Prompt`：选择阅读输出语言并编辑论文阅读 Prompt。
+- `Setting`：编辑 Notion API、兼容 AI provider 的 API、模型名和论文文本长度。
+
+UI 支持三种语言：
+
+- 中文
+- 日本語
+- English
+
+Prompt 内置三套 XML 默认语言选项：
+
+- 中文输出
+- 日本語输出
+- English output
+
+配置采用 XML 优先：CLI 使用 `config/cli_config.xml`，GUI 使用 `config/gui_config.xml`。Prompt 也按 XML 文件读取：默认文件在 `prompts/default/`，GUI 自定义文件在 `prompts/gui/`，CLI 自定义文件在 `prompts/cli/`。切换 Prompt 输出语言时会读取对应语言的 XML。
+
+`Dashboard` 中的 AI 对话区域会显示系统 prompt、用户请求、模型 JSON 回复和运行状态。它不会显示模型隐藏推理链。
+
+`Prompt` 和 `Setting` 页面支持用系统默认第三方编辑器打开：
+
+- `config/gui_config.xml`
+- `prompts/gui/<language>.xml`
+
+如果要使用 OpenAI 兼容 API provider，在 Setting 页面中填写：
+
+- `AI API Key`
+- `AI Model`
+- `Compatible API Base URL`
+
+如果使用 OpenAI 默认 API，`Compatible API Base URL` 留空即可。兼容 provider 通常填写它们的 `/v1` base URL。
 
 ## 功能
 
@@ -219,10 +319,14 @@ Paper AI Reader 是一个用于自动阅读论文的 Python 工具。它会从 N
 - 支持抓取网页正文和 PDF 文本
 - 从论文正文中识别真实论文标题
 - 自动重写 Notion 页面 `Title`
-- 使用 OpenAI API 生成中文论文分析
+- 使用配置的 AI API 生成论文分析
 - AI 分析成功后才删除页面已有 blocks
 - 将结构化笔记写回 Notion 页面
 - 自动更新 Notion 页面阅读状态
+- 提供 Dashboard / Prompt / Setting 三页桌面 GUI
+- 支持中文、日文、英文 UI
+- 提供中文、日文、英文三套内置阅读 Prompt
+- 支持通过 `base_url` 配置 OpenAI 兼容 AI provider
 - 支持 Notion 新版 `data_sources` 查询方式
 
 ## Notion 数据库要求

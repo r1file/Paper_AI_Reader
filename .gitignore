@@ -4,3 +4,9 @@ venv/
 __pycache__/
 *.pyc
 .DS_Store
+app_config.json
+prompts/custom_prompt.md
+config/cli_config.xml
+config/gui_config.xml
+prompts/cli/
+prompts/gui/

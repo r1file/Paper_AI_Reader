@@ -1,26 +1,14 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from openai import OpenAI
 
+from paper_ai_reader.prompts import get_default_prompt
 
-SYSTEM_PROMPT = """你是一个帮助机器人方向研究者阅读论文的中文科研助手。
-
-研究方向：
-- LLM
-- ROS2
-- TurtleBot3
-- Human-Robot Interaction (HRI)
-- 情绪感知交互
-- 从人的情感输入生成机器人行为/控制指令
-
-请重点分析论文如何启发、支持或迁移到上述研究方向。
-除 paper_title 和 GitHub/code URL 外，所有字段内容必须使用中文。
-paper_title 必须是从论文正文中识别出的真实论文标题，不要翻译论文标题。
-只返回符合 schema 的有效 JSON。
-"""
+ConversationCallback = Callable[[str, str], None]
 
 
 ANALYSIS_SCHEMA: dict[str, Any] = {
@@ -73,9 +61,21 @@ class AnalysisError(RuntimeError):
 
 
 class PaperAnalyzer:
-    def __init__(self, api_key: str, model: str) -> None:
-        self.client = OpenAI(api_key=api_key)
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        base_url: str | None = None,
+        system_prompt: str | None = None,
+        conversation_callback: ConversationCallback | None = None,
+    ) -> None:
+        client_args: dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            client_args["base_url"] = base_url
+        self.client = OpenAI(**client_args)
         self.model = model
+        self.system_prompt = system_prompt or get_default_prompt("zh")
+        self.conversation_callback = conversation_callback
 
     def analyze(self, title: str, website: str, paper_text: str) -> dict[str, Any]:
         prompt = f"""请分析这篇论文，并生成结构化 JSON。
@@ -86,11 +86,13 @@ class PaperAnalyzer:
 论文文本：
 {paper_text}
 """
+        self._emit_conversation("system", self.system_prompt)
+        self._emit_conversation("user", prompt)
         try:
             response = self.client.responses.create(
                 model=self.model,
                 input=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": prompt},
                 ],
                 text={
@@ -102,8 +104,13 @@ class PaperAnalyzer:
                     }
                 },
             )
+            self._emit_conversation("assistant", response.output_text)
             return normalize_analysis(json.loads(response.output_text))
         except Exception as responses_error:
+            self._emit_conversation(
+                "status",
+                f"Responses API failed; trying Chat Completions fallback: {responses_error}",
+            )
             try:
                 return self._analyze_with_chat_completions(title, website, paper_text)
             except Exception as chat_error:
@@ -129,7 +136,7 @@ class PaperAnalyzer:
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": prompt},
             ],
             response_format={
@@ -144,7 +151,12 @@ class PaperAnalyzer:
         content = response.choices[0].message.content
         if not content:
             raise AnalysisError("OpenAI returned an empty message.")
+        self._emit_conversation("assistant", content)
         return normalize_analysis(json.loads(content))
+
+    def _emit_conversation(self, role: str, content: str) -> None:
+        if self.conversation_callback:
+            self.conversation_callback(role, content)
 
 
 def normalize_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
