@@ -28,12 +28,25 @@ def prompt_path(profile: str, language: str) -> Path:
 def get_prompt(profile: str, language: str) -> str:
     user_path = prompt_path(profile, language)
     if user_path.exists():
-        return read_prompt_xml(user_path)
-    return read_prompt_xml(default_prompt_path(language))
+        return read_system_prompt_xml(user_path)
+    return read_system_prompt_xml(default_prompt_path(language))
 
 
 def get_default_prompt(language: str) -> str:
-    return read_prompt_xml(default_prompt_path(language))
+    return read_system_prompt_xml(default_prompt_path(language))
+
+
+def get_user_prompt_template(profile: str, language: str) -> str:
+    user_path = prompt_path(profile, language)
+    if user_path.exists():
+        template = read_user_prompt_template_xml(user_path)
+        if template:
+            return template
+    return get_default_user_prompt_template(language)
+
+
+def get_default_user_prompt_template(language: str) -> str:
+    return read_user_prompt_template_xml(default_prompt_path(language))
 
 
 def ensure_prompt_xml(profile: str, language: str) -> Path:
@@ -49,25 +62,51 @@ def ensure_prompt_xml(profile: str, language: str) -> Path:
 
 
 def read_prompt_xml(path: str | Path) -> str:
+    return read_system_prompt_xml(path)
+
+
+def read_system_prompt_xml(path: str | Path) -> str:
     xml_path = Path(path)
     if not xml_path.exists():
         return ""
     root = ET.parse(xml_path).getroot()
-    content = root.findtext("content")
+    content = root.findtext("system_prompt") or root.findtext("content")
     return content.strip() if content else ""
 
 
-def write_prompt_xml(path: str | Path, profile: str, language: str, content: str) -> None:
+def read_user_prompt_template_xml(path: str | Path) -> str:
+    xml_path = Path(path)
+    if not xml_path.exists():
+        return ""
+    root = ET.parse(xml_path).getroot()
+    content = root.findtext("user_prompt_template")
+    return content.strip() if content else ""
+
+
+def write_prompt_xml(
+    path: str | Path,
+    profile: str,
+    language: str,
+    content: str,
+    user_prompt_template: str | None = None,
+) -> None:
     xml_path = Path(path)
     xml_path.parent.mkdir(parents=True, exist_ok=True)
+    normalized = normalized_language(language)
+    if user_prompt_template is None:
+        user_prompt_template = (
+            read_user_prompt_template_xml(xml_path)
+            or get_default_user_prompt_template(normalized)
+        )
     root = ET.Element(
         "paper_ai_reader_prompt",
         {
             "profile": normalized_profile(profile),
-            "language": normalized_language(language),
+            "language": normalized,
         },
     )
-    ET.SubElement(root, "content").text = content.strip()
+    ET.SubElement(root, "system_prompt").text = content.strip()
+    ET.SubElement(root, "user_prompt_template").text = user_prompt_template.strip()
     tree = ET.ElementTree(root)
     ET.indent(tree, space="  ")
     tree.write(xml_path, encoding="utf-8", xml_declaration=True)

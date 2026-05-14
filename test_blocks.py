@@ -1,10 +1,9 @@
-import os
-from dotenv import load_dotenv
 from notion_client import Client
 
-load_dotenv()
+from paper_ai_reader.config import load_settings
 
-notion = Client(auth=os.getenv("NOTION_TOKEN"))
+settings = load_settings(profile="cli")
+notion = Client(auth=settings.notion_token)
 
 page_id = "3526e7e4-145f-8104-b3dc-e4b8443462a6"
 

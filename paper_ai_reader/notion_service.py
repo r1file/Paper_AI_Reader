@@ -50,7 +50,7 @@ class NotionPaperService:
         if property_type in {"status", "select"}:
             self.status_property_type = property_type
 
-    def iter_pending_pages(self) -> Iterable[PaperPage]:
+    def iter_pages(self) -> Iterable[PaperPage]:
         start_cursor = None
         while True:
             query_args: dict[str, Any] = {
@@ -71,13 +71,16 @@ class NotionPaperService:
                 )
 
             for page in response.get("results", []):
-                paper_page = self._parse_page(page)
-                if paper_page.status in PROCESSABLE_STATUSES:
-                    yield paper_page
+                yield self._parse_page(page)
 
             if not response.get("has_more"):
                 break
             start_cursor = response.get("next_cursor")
+
+    def iter_pending_pages(self) -> Iterable[PaperPage]:
+        for paper_page in self.iter_pages():
+            if paper_page.status in PROCESSABLE_STATUSES:
+                yield paper_page
 
     def _parse_page(self, page: dict[str, Any]) -> PaperPage:
         properties = page.get("properties", {})

@@ -3,7 +3,7 @@
   <notion_token>secret_your_notion_integration_token</notion_token>
   <notion_database_id>your_notion_database_id</notion_database_id>
   <ai_api_key>sk-your_ai_api_key</ai_api_key>
-  <ai_model>gpt-4o-mini</ai_model>
+  <ai_model></ai_model>
   <ai_base_url></ai_base_url>
   <paper_text_limit>50000</paper_text_limit>
   <ui_language>zh</ui_language>

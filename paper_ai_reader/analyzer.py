@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -67,6 +68,7 @@ class PaperAnalyzer:
         model: str,
         base_url: str | None = None,
         system_prompt: str | None = None,
+        user_prompt_template: str | None = None,
         conversation_callback: ConversationCallback | None = None,
     ) -> None:
         client_args: dict[str, Any] = {"api_key": api_key}
@@ -75,17 +77,11 @@ class PaperAnalyzer:
         self.client = OpenAI(**client_args)
         self.model = model
         self.system_prompt = system_prompt or get_default_prompt("zh")
+        self.user_prompt_template = user_prompt_template or ""
         self.conversation_callback = conversation_callback
 
     def analyze(self, title: str, website: str, paper_text: str) -> dict[str, Any]:
-        prompt = f"""请分析这篇论文，并生成结构化 JSON。
-
-标题：{title}
-网址：{website}
-
-论文文本：
-{paper_text}
-"""
+        prompt = build_analysis_prompt(title, website, paper_text, self.user_prompt_template)
         self._emit_conversation("system", self.system_prompt)
         self._emit_conversation("user", prompt)
         try:
@@ -105,19 +101,23 @@ class PaperAnalyzer:
                 },
             )
             self._emit_conversation("assistant", response.output_text)
-            return normalize_analysis(json.loads(response.output_text))
+            return normalize_analysis(parse_analysis_json(response.output_text))
         except Exception as responses_error:
-            self._emit_conversation(
-                "status",
-                f"Responses API failed; trying Chat Completions fallback: {responses_error}",
-            )
             try:
                 return self._analyze_with_chat_completions(title, website, paper_text)
-            except Exception as chat_error:
-                raise AnalysisError(
-                    f"OpenAI analysis failed. Responses error: {responses_error}; "
-                    f"Chat Completions fallback error: {chat_error}"
-                ) from chat_error
+            except Exception as schema_error:
+                try:
+                    return self._analyze_with_json_object(title, website, paper_text)
+                except Exception as json_object_error:
+                    try:
+                        return self._analyze_with_plain_chat(title, website, paper_text)
+                    except Exception as plain_error:
+                        raise AnalysisError(
+                            f"OpenAI-compatible analysis failed. Responses error: {responses_error}; "
+                            f"Chat JSON schema error: {schema_error}; "
+                            f"Chat JSON object error: {json_object_error}; "
+                            f"Plain chat JSON error: {plain_error}"
+                        ) from plain_error
 
     def _analyze_with_chat_completions(
         self,
@@ -125,14 +125,7 @@ class PaperAnalyzer:
         website: str,
         paper_text: str,
     ) -> dict[str, Any]:
-        prompt = f"""请分析这篇论文，并生成结构化 JSON。
-
-标题：{title}
-网址：{website}
-
-论文文本：
-{paper_text}
-"""
+        prompt = build_analysis_prompt(title, website, paper_text, self.user_prompt_template)
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -152,7 +145,46 @@ class PaperAnalyzer:
         if not content:
             raise AnalysisError("OpenAI returned an empty message.")
         self._emit_conversation("assistant", content)
-        return normalize_analysis(json.loads(content))
+        return normalize_analysis(parse_analysis_json(content))
+
+    def _analyze_with_json_object(
+        self,
+        title: str,
+        website: str,
+        paper_text: str,
+    ) -> dict[str, Any]:
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": build_analysis_prompt(title, website, paper_text, self.user_prompt_template)},
+            ],
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content
+        if not content:
+            raise AnalysisError("OpenAI-compatible provider returned an empty message.")
+        self._emit_conversation("assistant", content)
+        return normalize_analysis(parse_analysis_json(content))
+
+    def _analyze_with_plain_chat(
+        self,
+        title: str,
+        website: str,
+        paper_text: str,
+    ) -> dict[str, Any]:
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": build_analysis_prompt(title, website, paper_text, self.user_prompt_template)},
+            ],
+        )
+        content = response.choices[0].message.content
+        if not content:
+            raise AnalysisError("OpenAI-compatible provider returned an empty message.")
+        self._emit_conversation("assistant", content)
+        return normalize_analysis(parse_analysis_json(content))
 
     def _emit_conversation(self, role: str, content: str) -> None:
         if self.conversation_callback:
@@ -175,3 +207,43 @@ def normalize_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
         "code_available": bool(analysis.get("code_available")),
         "code_url": str(analysis.get("code_url") or "").strip(),
     }
+
+
+def build_analysis_prompt(
+    title: str,
+    website: str,
+    paper_text: str,
+    template: str = "",
+) -> str:
+    if not template:
+        raise AnalysisError("Missing user prompt template.")
+    try:
+        return template.format(
+            title=title,
+            website=website,
+            paper_text=paper_text,
+        )
+    except KeyError as exc:
+        raise AnalysisError(f"User prompt template has an unknown placeholder: {exc}") from exc
+
+
+def parse_analysis_json(content: str) -> dict[str, Any]:
+    cleaned = strip_json_fence(content).strip()
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+        if not match:
+            raise
+        parsed = json.loads(match.group(0))
+    if not isinstance(parsed, dict):
+        raise AnalysisError("AI response JSON must be an object.")
+    return parsed
+
+
+def strip_json_fence(content: str) -> str:
+    text = content.strip()
+    fence_match = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+    if fence_match:
+        return fence_match.group(1)
+    return text

@@ -28,6 +28,14 @@ The UI supports:
 
 The Dashboard conversation panel shows the system prompt, user request, model JSON response, and runtime status. It does not display hidden model reasoning chains.
 
+The Setting page includes manual connectivity checks for Notion and the configured AI provider. Results are shown beside the buttons with natural-language messages such as `Notion API 正常`, `无效的 Notion Token`, or `无效服务商链接或网络不可达`. If a connectivity problem is detected, the Dashboard status dot turns red and detailed diagnostics are written to the Dashboard log.
+
+The AI Model field on the Setting page is an editable dropdown. On startup, the GUI asks the configured provider for available models and selects a provider-appropriate default. If `ai_model` is set in the XML config, that explicit value has priority. You can also click `刷新模型` / `Refresh Models` after changing the API key or Base URL.
+
+Some compatible providers, including certain DeepSeek API modes, may not support OpenAI Responses API or structured `response_format`. Paper AI Reader automatically falls back from Responses API to Chat Completions JSON schema, JSON object, and finally plain Chat Completions with strict JSON parsing.
+
+The CLI and GUI both call the shared `paper_ai_reader.backend.PaperAIReaderBackend` facade, keeping UI concerns separate from Notion, AI-provider, connectivity, and paper-processing logic.
+
 The Prompt and Setting pages can open these files in your default external editor, such as Notepad, VS Code, or another OS-associated editor:
 
 - `config/gui_config.xml`
@@ -182,13 +190,19 @@ The OpenAI response is requested as structured JSON with this shape:
 │       ├── zh.xml
 │       ├── ja.xml
 │       └── en.xml
-├── .env.example
 ├── paper_ai_reader
 │   ├── __init__.py
 │   ├── analyzer.py
+│   ├── backend.py
 │   ├── config.py
+│   ├── connectivity.py
 │   ├── fetcher.py
-│   └── notion_service.py
+│   ├── gui
+│   │   ├── app.py
+│   │   └── i18n.py
+│   ├── notion_service.py
+│   ├── pipeline.py
+│   └── prompts.py
 ├── test_notion.py
 └── test_blocks.py
 ```
@@ -210,7 +224,7 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Configuration is XML-first. The CLI and GUI use separate XML files:
+Configuration is XML-only. The CLI and GUI use separate XML files:
 
 - CLI: `config/cli_config.xml`
 - GUI: `config/gui_config.xml`
@@ -222,15 +236,15 @@ cp config/cli_config.example.xml config/cli_config.xml
 cp config/gui_config.example.xml config/gui_config.xml
 ```
 
-Then edit the XML values for Notion, AI provider, model, text limit, UI language, theme, and prompt language. `.env` is only kept as a backward-compatible fallback and is no longer the primary configuration path.
+Then edit the XML values for Notion, AI provider, model, text limit, UI language, theme, and prompt language. The application does not read `.env`; XML files are the only runtime configuration source. In GUI config, leave `ai_model` empty to let the app select a default from the provider's model list at startup.
 
-Prompt files are also XML-based:
+Prompt files are also XML-based and contain both the system prompt and the user prompt template:
 
 - Default prompts: `prompts/default/zh.xml`, `prompts/default/ja.xml`, `prompts/default/en.xml`
 - CLI custom prompts: `prompts/cli/<language>.xml`
 - GUI custom prompts: `prompts/gui/<language>.xml`
 
-When you switch the prompt output language, the app reads the matching XML file. If no custom prompt XML exists yet, it falls back to `prompts/default/<language>.xml`.
+When you switch the prompt output language, the app reads the matching XML file. If no custom prompt XML exists yet, it falls back to `prompts/default/<language>.xml`. The `user_prompt_template` supports `{title}`, `{website}`, and `{paper_text}` placeholders.
 
 ## Usage
 
@@ -294,9 +308,15 @@ Prompt 内置三套 XML 默认语言选项：
 - 日本語输出
 - English output
 
-配置采用 XML 优先：CLI 使用 `config/cli_config.xml`，GUI 使用 `config/gui_config.xml`。Prompt 也按 XML 文件读取：默认文件在 `prompts/default/`，GUI 自定义文件在 `prompts/gui/`，CLI 自定义文件在 `prompts/cli/`。切换 Prompt 输出语言时会读取对应语言的 XML。
+配置仅使用 XML：CLI 使用 `config/cli_config.xml`，GUI 使用 `config/gui_config.xml`，程序不会读取 `.env`。Prompt 也按 XML 文件读取：默认文件在 `prompts/default/`，GUI 自定义文件在 `prompts/gui/`，CLI 自定义文件在 `prompts/cli/`。每个 Prompt XML 都包含 system prompt 和 user prompt template；切换 Prompt 输出语言时会读取对应语言的 XML。`user_prompt_template` 支持 `{title}`、`{website}`、`{paper_text}` 占位符。
 
 `Dashboard` 中的 AI 对话区域会显示系统 prompt、用户请求、模型 JSON 回复和运行状态。它不会显示模型隐藏推理链。
+
+`Setting` 页面提供 Notion 和 AI 服务商的手动连通性测试。测试结果会显示在按钮旁边，例如 `Notion API 正常`、`无效的 Notion Token`、`无效服务商链接或网络不可达`。如果检测到基础连通性问题，Dashboard 状态灯会变成红色，并把详细诊断写入 Dashboard 日志。
+
+`Setting` 页面中的 `AI Model` 是可编辑下拉框。GUI 启动时会自动问询当前服务商的模型列表并选择一个合适默认模型；如果 XML 中已经显式填写了 `ai_model`，则优先使用 XML 中的模型。修改 API Key 或 Base URL 后，也可以点击 `刷新模型` 手动重新读取。
+
+部分兼容服务商（例如某些 DeepSeek API 模式）可能不支持 OpenAI Responses API 或结构化 `response_format`。程序会自动按顺序降级到 Chat Completions JSON schema、JSON object，最后使用普通 Chat Completions 并进行严格 JSON 解析。
 
 `Prompt` 和 `Setting` 页面支持用系统默认第三方编辑器打开：
 

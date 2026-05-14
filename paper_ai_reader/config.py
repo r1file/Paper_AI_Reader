@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 from xml.etree import ElementTree as ET
 
-from dotenv import load_dotenv
-
-from paper_ai_reader.prompts import DEFAULT_PROMPT_LANGUAGE, get_prompt, normalized_language
+from paper_ai_reader.prompts import (
+    DEFAULT_PROMPT_LANGUAGE,
+    get_prompt,
+    get_user_prompt_template,
+    normalized_language,
+)
 
 
 DEFAULT_MODEL = "gpt-4o-mini"
@@ -17,7 +17,18 @@ DEFAULT_TEXT_LIMIT = 50_000
 CONFIG_DIR = Path("config")
 CLI_CONFIG_PATH = CONFIG_DIR / "cli_config.xml"
 GUI_CONFIG_PATH = CONFIG_DIR / "gui_config.xml"
-LEGACY_JSON_CONFIG_PATH = Path("app_config.json")
+GUI_STATE_PATH = CONFIG_DIR / ".gui_state.xml"
+REQUIRED_CONFIG_KEYS = {
+    "notion_token",
+    "notion_database_id",
+    "ai_api_key",
+    "ai_model",
+    "ai_base_url",
+    "paper_text_limit",
+    "ui_language",
+    "theme_mode",
+    "prompt_language",
+}
 
 
 @dataclass
@@ -32,7 +43,18 @@ class Settings:
     theme_mode: str = "system"
     prompt_language: str = DEFAULT_PROMPT_LANGUAGE
     prompt: str = ""
+    user_prompt_template: str = ""
     profile: str = "cli"
+    ai_model_explicit: bool = False
+
+
+@dataclass
+class AppState:
+    ui_language: str = ""
+    prompt_language: str = ""
+    theme_mode: str = "system"
+    last_config_path: str = ""
+    last_prompt_path: str = ""
 
     @property
     def openai_api_key(self) -> str:
@@ -48,43 +70,28 @@ def load_settings(
     validate_required: bool = True,
     profile: str = "cli",
 ) -> Settings:
-    load_dotenv()
     normalized_profile = normalize_profile(profile)
     path = Path(config_path) if config_path else default_config_path(normalized_profile)
     config = load_xml_config(path)
 
-    if not config:
-        config = load_legacy_config(normalized_profile)
-
     prompt_language = normalized_language(
-        str(config.get("prompt_language") or os.getenv("PROMPT_LANGUAGE") or DEFAULT_PROMPT_LANGUAGE)
+        str(config.get("prompt_language") or DEFAULT_PROMPT_LANGUAGE)
     )
     ui_language = normalized_language(
-        str(config.get("ui_language") or os.getenv("UI_LANGUAGE") or prompt_language)
+        str(config.get("ui_language") or prompt_language)
     )
-    theme_mode = str(config.get("theme_mode") or os.getenv("THEME_MODE") or "system")
+    theme_mode = str(config.get("theme_mode") or "system")
     prompt = get_prompt(normalized_profile, prompt_language)
+    user_prompt_template = get_user_prompt_template(normalized_profile, prompt_language)
 
-    notion_token = str(config.get("notion_token") or os.getenv("NOTION_TOKEN") or "")
-    notion_database_id = str(config.get("notion_database_id") or os.getenv("NOTION_DATABASE_ID") or "")
-    ai_api_key = str(
-        config.get("ai_api_key")
-        or config.get("openai_api_key")
-        or os.getenv("AI_API_KEY")
-        or os.getenv("OPENAI_API_KEY")
-        or ""
-    )
-    ai_model = str(
-        config.get("ai_model")
-        or config.get("openai_model")
-        or os.getenv("AI_MODEL")
-        or os.getenv("OPENAI_MODEL")
-        or DEFAULT_MODEL
-    )
-    ai_base_url = config.get("ai_base_url") or os.getenv("AI_BASE_URL") or None
+    notion_token = str(config.get("notion_token") or "")
+    notion_database_id = str(config.get("notion_database_id") or "")
+    ai_api_key = str(config.get("ai_api_key") or "")
+    configured_ai_model = str(config.get("ai_model") or "").strip()
+    ai_model = configured_ai_model or (DEFAULT_MODEL if normalized_profile == "cli" else "")
+    ai_base_url = config.get("ai_base_url") or None
     paper_text_limit = int(
         config.get("paper_text_limit")
-        or os.getenv("PAPER_TEXT_LIMIT")
         or DEFAULT_TEXT_LIMIT
     )
 
@@ -113,11 +120,13 @@ def load_settings(
         theme_mode=theme_mode,
         prompt_language=prompt_language,
         prompt=prompt,
+        user_prompt_template=user_prompt_template,
         profile=normalized_profile,
+        ai_model_explicit=bool(configured_ai_model),
     )
 
 
-def save_app_config(
+def save_settings_xml(
     settings: Settings,
     config_path: str | Path | None = None,
     profile: str | None = None,
@@ -154,6 +163,77 @@ def save_xml_config(
     tree.write(path, encoding="utf-8", xml_declaration=True)
 
 
+def load_app_state(path: str | Path = GUI_STATE_PATH) -> AppState:
+    xml_path = Path(path)
+    if not xml_path.exists():
+        return AppState()
+    try:
+        values = load_xml_config(xml_path)
+    except ET.ParseError:
+        return AppState()
+    return AppState(
+        ui_language=normalized_language(values.get("ui_language", "")),
+        prompt_language=normalized_language(values.get("prompt_language", "")),
+        theme_mode=values.get("theme_mode", "system") or "system",
+        last_config_path=values.get("last_config_path", ""),
+        last_prompt_path=values.get("last_prompt_path", ""),
+    )
+
+
+def save_app_state(state: AppState, path: str | Path = GUI_STATE_PATH) -> None:
+    xml_path = Path(path)
+    xml_path.parent.mkdir(parents=True, exist_ok=True)
+    root = ET.Element("paper_ai_reader_gui_state")
+    for key, value in {
+        "ui_language": state.ui_language,
+        "prompt_language": state.prompt_language,
+        "theme_mode": state.theme_mode,
+        "last_config_path": state.last_config_path,
+        "last_prompt_path": state.last_prompt_path,
+    }.items():
+        ET.SubElement(root, key).text = value
+    tree = ET.ElementTree(root)
+    ET.indent(tree, space="  ")
+    tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+
+
+def validate_runtime_files(profile: str = "gui", config_path: str | Path | None = None) -> list[str]:
+    errors: list[str] = []
+    normalized_profile = normalize_profile(profile)
+    config_path = Path(config_path) if config_path else default_config_path(normalized_profile)
+    if not config_path.exists():
+        errors.append(f"Missing config XML: {config_path}")
+    else:
+        try:
+            config_values = load_xml_config(config_path)
+            missing_keys = sorted(REQUIRED_CONFIG_KEYS - set(config_values))
+            if missing_keys:
+                errors.append(f"Config XML missing keys: {', '.join(missing_keys)}")
+            missing_values = [
+                key for key in ("notion_token", "notion_database_id", "ai_api_key")
+                if not config_values.get(key)
+            ]
+            if missing_values:
+                errors.append(f"Config XML has empty required values: {', '.join(missing_values)}")
+        except ET.ParseError as exc:
+            errors.append(f"Invalid config XML: {exc}")
+
+    for language in ("zh", "ja", "en"):
+        prompt_file = default_config_path("gui").parent.parent / "prompts" / "default" / f"{language}.xml"
+        if not prompt_file.exists():
+            errors.append(f"Missing default prompt XML: {prompt_file}")
+            continue
+        try:
+            root = ET.parse(prompt_file).getroot()
+            if not root.findtext("system_prompt") and not root.findtext("content"):
+                errors.append(f"Prompt XML missing system_prompt: {prompt_file}")
+            if not root.findtext("user_prompt_template"):
+                errors.append(f"Prompt XML missing user_prompt_template: {prompt_file}")
+        except ET.ParseError as exc:
+            errors.append(f"Invalid prompt XML {prompt_file}: {exc}")
+    return errors
+
+
 def load_xml_config(config_path: str | Path) -> dict[str, str]:
     path = Path(config_path)
     if not path.exists():
@@ -171,15 +251,3 @@ def default_config_path(profile: str) -> Path:
 
 def normalize_profile(profile: str) -> str:
     return profile if profile in {"cli", "gui"} else "cli"
-
-
-def load_legacy_config(profile: str) -> dict[str, Any]:
-    if profile != "gui" or not LEGACY_JSON_CONFIG_PATH.exists():
-        return {}
-    try:
-        data = json.loads(LEGACY_JSON_CONFIG_PATH.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
-    if data.get("prompt"):
-        data.pop("prompt")
-    return data

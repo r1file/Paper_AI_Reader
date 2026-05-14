@@ -1,11 +1,10 @@
-import os
-from dotenv import load_dotenv
 from notion_client import Client
 
-load_dotenv()
+from paper_ai_reader.config import load_settings
 
-notion = Client(auth=os.getenv("NOTION_TOKEN"))
-database_id = os.getenv("NOTION_DATABASE_ID")
+settings = load_settings(profile="cli")
+notion = Client(auth=settings.notion_token)
+database_id = settings.notion_database_id
 
 # 1. 先读取 database
 db = notion.databases.retrieve(database_id=database_id)
