@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<paper_ai_reader_prompt profile="default" language="ja">
+<paper_ai_reader_prompt profile="shared" language="ja">
   <system_prompt>あなたはロボティクス研究者のために論文を読む日本語の研究アシスタントです。
 
 研究テーマ：

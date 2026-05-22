@@ -39,7 +39,7 @@ The CLI and GUI both call the shared `paper_ai_reader.backend.PaperAIReaderBacke
 The Prompt and Setting pages can open these files in your default external editor, such as Notepad, VS Code, or another OS-associated editor:
 
 - `config/gui_config.xml`
-- `prompts/gui/<language>.xml`
+- `prompts/<language>.xml`
 
 For compatible AI API providers, set:
 
@@ -238,13 +238,13 @@ cp config/gui_config.example.xml config/gui_config.xml
 
 Then edit the XML values for Notion, AI provider, model, text limit, UI language, theme, and prompt language. The application does not read `.env`; XML files are the only runtime configuration source. In GUI config, leave `ai_model` empty to let the app select a default from the provider's model list at startup.
 
-Prompt files are also XML-based and contain both the system prompt and the user prompt template:
+Prompt files are also XML-based and contain both the system prompt and the user prompt template. CLI and GUI use the same canonical files:
 
-- Default prompts: `prompts/default/zh.xml`, `prompts/default/ja.xml`, `prompts/default/en.xml`
-- CLI custom prompts: `prompts/cli/<language>.xml`
-- GUI custom prompts: `prompts/gui/<language>.xml`
+- `prompts/zh.xml`
+- `prompts/ja.xml`
+- `prompts/en.xml`
 
-When you switch the prompt output language, the app reads the matching XML file. If no custom prompt XML exists yet, it falls back to `prompts/default/<language>.xml`. The `user_prompt_template` supports `{title}`, `{website}`, and `{paper_text}` placeholders.
+When you switch the prompt output language, the app reads the matching XML file directly. The `user_prompt_template` supports `{title}`, `{website}`, and `{paper_text}` placeholders.
 
 ## Usage
 
@@ -269,7 +269,7 @@ python -m compileall main.py paper_ai_reader test_blocks.py test_notion.py
 ## Notes
 
 - XML config files under `config/cli_config.xml` and `config/gui_config.xml` contain secrets and should never be committed.
-- Custom prompt XML under `prompts/cli/` and `prompts/gui/` is local and ignored by git.
+- Prompt XML files are canonical under `prompts/` and should contain both `system_prompt` and `user_prompt_template`.
 - Notion page blocks are deleted only after paper text has been fetched and AI analysis has succeeded.
 - `test_notion.py` and `test_blocks.py` are manual debugging scripts and call the Notion API directly.
 - PDF text extraction uses `pypdf`; complex PDF layouts may not be extracted perfectly.
@@ -293,7 +293,7 @@ python gui.py
 GUI 主要分为三个页面：
 
 - `Dashboard`：启动/停止论文阅读流程，显示当前操作、运行日志、AI 对话和状态流。
-- `Prompt`：选择阅读输出语言并编辑论文阅读 Prompt。
+- `Prompt`：选择阅读输出语言、预览 Prompt，并通过外部编辑器修改 XML。
 - `Setting`：编辑 Notion API、兼容 AI provider 的 API、模型名和论文文本长度。
 
 UI 支持三种语言：
@@ -302,13 +302,13 @@ UI 支持三种语言：
 - 日本語
 - English
 
-Prompt 内置三套 XML 默认语言选项：
+Prompt 提供三套唯一 XML 语言文件：
 
 - 中文输出
 - 日本語输出
 - English output
 
-配置仅使用 XML：CLI 使用 `config/cli_config.xml`，GUI 使用 `config/gui_config.xml`，程序不会读取 `.env`。Prompt 也按 XML 文件读取：默认文件在 `prompts/default/`，GUI 自定义文件在 `prompts/gui/`，CLI 自定义文件在 `prompts/cli/`。每个 Prompt XML 都包含 system prompt 和 user prompt template；切换 Prompt 输出语言时会读取对应语言的 XML。`user_prompt_template` 支持 `{title}`、`{website}`、`{paper_text}` 占位符。
+配置仅使用 XML：CLI 使用 `config/cli_config.xml`，GUI 使用 `config/gui_config.xml`，程序不会读取 `.env`。Prompt 也按 XML 文件读取，并且 CLI/GUI 共用唯一来源：`prompts/zh.xml`、`prompts/ja.xml`、`prompts/en.xml`。每个 Prompt XML 都必须包含 `system_prompt` 和 `user_prompt_template`；切换 Prompt 输出语言时会直接读取对应语言的 XML。`user_prompt_template` 支持 `{title}`、`{website}`、`{paper_text}` 占位符。
 
 `Dashboard` 中的 AI 对话区域会显示系统 prompt、用户请求、模型 JSON 回复和运行状态。它不会显示模型隐藏推理链。
 
@@ -321,7 +321,7 @@ Prompt 内置三套 XML 默认语言选项：
 `Prompt` 和 `Setting` 页面支持用系统默认第三方编辑器打开：
 
 - `config/gui_config.xml`
-- `prompts/gui/<language>.xml`
+- `prompts/<language>.xml`
 
 如果要使用 OpenAI 兼容 API provider，在 Setting 页面中填写：
 

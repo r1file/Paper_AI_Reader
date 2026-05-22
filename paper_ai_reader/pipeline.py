@@ -5,8 +5,8 @@ from dataclasses import dataclass
 
 from paper_ai_reader.analyzer import AnalysisError, ConversationCallback, PaperAnalyzer
 from paper_ai_reader.config import Settings
-from paper_ai_reader.fetcher import FetchError, fetch_paper_text
-from paper_ai_reader.notion_service import NotionPaperService, PROCESSABLE_STATUSES
+from paper_ai_reader.fetcher import FetchError, clean_text, fetch_paper_text
+from paper_ai_reader.notion_service import NotionPaperService, PaperPage, PROCESSABLE_STATUSES
 
 
 LogCallback = Callable[[str], None]
@@ -27,6 +27,9 @@ PIPELINE_TEXT = {
         "mark_reading": "正在更新 Status 为 AI Reading…",
         "fetch_status": "抓取论文：{title}",
         "fetch": "正在抓取论文内容：{website}",
+        "fetch_fallback": "网站抓取失败，正在尝试使用 Notion 页面已有正文…",
+        "fetch_fallback_ok": "已使用 Notion 页面已有正文继续分析。",
+        "fetch_fallback_empty": "Notion 页面中也没有可读正文。",
         "analyze_status": "分析论文：{title}",
         "analyze": "正在使用 AI 模型分析论文…",
         "update_title_status": "更新 Notion 标题：{title}",
@@ -60,6 +63,9 @@ PIPELINE_TEXT = {
         "mark_reading": "Status を AI Reading に更新中…",
         "fetch_status": "論文を取得中：{title}",
         "fetch": "論文内容を取得中：{website}",
+        "fetch_fallback": "Web 取得に失敗しました。Notion ページ内の既存本文を試しています…",
+        "fetch_fallback_ok": "Notion ページ内の既存本文を使って分析を続行します。",
+        "fetch_fallback_empty": "Notion ページにも読み取れる本文がありません。",
         "analyze_status": "論文を分析中：{title}",
         "analyze": "AI モデルで論文を分析中…",
         "update_title_status": "Notion タイトルを更新：{title}",
@@ -95,6 +101,9 @@ PIPELINE_TEXT["en"] = {
     "mark_reading": "Updating Status to AI Reading...",
     "fetch_status": "Fetching paper: {title}",
     "fetch": "Fetching paper content: {website}",
+    "fetch_fallback": "Website fetch failed; trying existing Notion page content...",
+    "fetch_fallback_ok": "Using existing Notion page content for analysis.",
+    "fetch_fallback_empty": "No readable text found in existing Notion page content.",
     "analyze_status": "Analyzing paper: {title}",
     "analyze": "Analyzing paper with AI model...",
     "update_title_status": "Updating Notion title: {title}",
@@ -184,7 +193,7 @@ class PipelineRunner:
 
                 self._status(self._t("fetch_status", title=paper.title))
                 self._log(self._t("fetch", website=paper.website))
-                paper_text = fetch_paper_text(paper.website, self.settings.paper_text_limit)
+                paper_text = self._fetch_with_notion_fallback(notion, paper)
 
                 self._status(self._t("analyze_status", title=paper.title))
                 self._log(self._t("analyze"))
@@ -239,3 +248,15 @@ class PipelineRunner:
     def _status(self, message: str) -> None:
         if self.status_callback:
             self.status_callback(message)
+
+    def _fetch_with_notion_fallback(self, notion: NotionPaperService, paper: PaperPage) -> str:
+        try:
+            return fetch_paper_text(paper.website, self.settings.paper_text_limit)
+        except FetchError as fetch_error:
+            self._log(self._t("fetch_fallback"))
+            page_text = clean_text(notion.read_page_text(paper.page_id))
+            if page_text:
+                self._log(self._t("fetch_fallback_ok"))
+                return page_text[: self.settings.paper_text_limit]
+            self._log(self._t("fetch_fallback_empty"))
+            raise fetch_error

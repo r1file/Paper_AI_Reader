@@ -104,6 +104,31 @@ class NotionPaperService:
         for block_id in self._list_child_block_ids(page_id):
             self._delete_block_with_retries(block_id)
 
+    def read_page_text(self, page_id: str) -> str:
+        lines: list[str] = []
+        self._collect_block_text(page_id, lines)
+        return "\n".join(line for line in lines if line.strip())
+
+    def _collect_block_text(self, block_id: str, lines: list[str]) -> None:
+        start_cursor = None
+
+        while True:
+            args: dict[str, Any] = {"block_id": block_id, "page_size": 100}
+            if start_cursor:
+                args["start_cursor"] = start_cursor
+
+            response = self.notion.blocks.children.list(**args)
+            for block in response.get("results", []):
+                text = extract_block_plain_text(block)
+                if text:
+                    lines.append(text)
+                if block.get("has_children"):
+                    self._collect_block_text(block["id"], lines)
+
+            if not response.get("has_more"):
+                break
+            start_cursor = response.get("next_cursor")
+
     def _delete_block_with_retries(self, block_id: str) -> None:
         for attempt in range(1, DELETE_RETRIES + 1):
             try:
@@ -232,6 +257,25 @@ def split_rich_text(text: str) -> list[str]:
 
     chunks.append(remaining or " ")
     return chunks
+
+
+def extract_block_plain_text(block: dict[str, Any]) -> str:
+    block_type = block.get("type")
+    if not block_type:
+        return ""
+
+    data = block.get(block_type, {})
+    rich_text_items = data.get("rich_text") or data.get("caption") or []
+    parts = [item.get("plain_text", "") for item in rich_text_items]
+
+    if block_type == "code":
+        parts.append(data.get("language", ""))
+    elif block_type == "equation":
+        parts.append(data.get("expression", ""))
+    elif block_type in {"pdf", "file", "image", "video", "bookmark", "embed", "link_preview"}:
+        parts.append(data.get("url", ""))
+
+    return " ".join(part.strip() for part in parts if part and part.strip())
 
 
 def chunked(items: list[dict[str, Any]], size: int) -> Iterable[list[dict[str, Any]]]:

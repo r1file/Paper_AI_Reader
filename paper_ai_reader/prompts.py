@@ -13,22 +13,18 @@ PROMPT_LANGUAGE_LABELS = {
     "en": "English",
 }
 
-DEFAULT_PROMPT_DIR = Path("prompts/default")
-USER_PROMPT_ROOT = Path("prompts")
+PROMPT_DIR = Path("prompts")
 
 
 def default_prompt_path(language: str) -> Path:
-    return DEFAULT_PROMPT_DIR / f"{normalized_language(language)}.xml"
+    return PROMPT_DIR / f"{normalized_language(language)}.xml"
 
 
 def prompt_path(profile: str, language: str) -> Path:
-    return USER_PROMPT_ROOT / normalized_profile(profile) / f"{normalized_language(language)}.xml"
+    return default_prompt_path(language)
 
 
 def get_prompt(profile: str, language: str) -> str:
-    user_path = prompt_path(profile, language)
-    if user_path.exists():
-        return read_system_prompt_xml(user_path)
     return read_system_prompt_xml(default_prompt_path(language))
 
 
@@ -37,11 +33,6 @@ def get_default_prompt(language: str) -> str:
 
 
 def get_user_prompt_template(profile: str, language: str) -> str:
-    user_path = prompt_path(profile, language)
-    if user_path.exists():
-        template = read_user_prompt_template_xml(user_path)
-        if template:
-            return template
     return get_default_user_prompt_template(language)
 
 
@@ -52,12 +43,7 @@ def get_default_user_prompt_template(language: str) -> str:
 def ensure_prompt_xml(profile: str, language: str) -> Path:
     path = prompt_path(profile, language)
     if not path.exists():
-        write_prompt_xml(
-            path=path,
-            profile=profile,
-            language=language,
-            content=get_default_prompt(language),
-        )
+        raise FileNotFoundError(f"Missing prompt XML: {path}")
     return path
 
 

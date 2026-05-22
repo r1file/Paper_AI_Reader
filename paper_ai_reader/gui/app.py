@@ -18,13 +18,11 @@ from paper_ai_reader.backend import PaperAIReaderBackend
 from paper_ai_reader.connectivity import CheckResult
 from paper_ai_reader.gui.i18n import SUPPORTED_UI_LANGUAGES, tr
 from paper_ai_reader.prompts import (
-    PROMPT_LANGUAGE_LABELS,
     ensure_prompt_xml,
     get_prompt,
     get_user_prompt_template,
     prompt_path,
     read_system_prompt_xml,
-    write_prompt_xml,
 )
 
 os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.fonts.warning=false")
@@ -35,7 +33,7 @@ LANGUAGE_CYCLE = ("zh", "ja", "en")
 LANGUAGE_SHORT_LABELS = {"zh": "🇨🇳 中", "ja": "🇯🇵 日", "en": "🇺🇸 EN"}
 
 
-def elide_status(text: str, limit: int = 10) -> str:
+def elide_status(text: str, limit: int = 9) -> str:
     clean_text = text.strip()
     return clean_text if len(clean_text) <= limit else f"{clean_text[:limit - 1]}…"
 
@@ -209,20 +207,28 @@ class DashboardPage(QWidget):
         hero_layout.addLayout(hero_text, 1)
 
         self.status_capsule.setObjectName("StatusCapsule")
-        self.status_capsule.setFixedWidth(164)
+        self.status_capsule.setFixedSize(136, 44)
+        self.status_capsule.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         capsule_layout = QHBoxLayout(self.status_capsule)
-        capsule_layout.setContentsMargins(12, 7, 12, 7)
+        capsule_layout.setContentsMargins(12, 0, 12, 0)
         capsule_layout.setSpacing(8)
+        capsule_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.status_dot.setObjectName("StatusDot")
-        self.status_dot.setFixedSize(16, 16)
+        self.status_dot.setFixedSize(14, 14)
+        self.status_dot.setFrameShape(QFrame.Shape.NoFrame)
+        self.status_dot.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.status_text_label.setObjectName("StatusTextPill")
-        self.status_text_label.setFixedWidth(112)
+        self.status_text_label.setFixedSize(86, 26)
         self.status_text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         capsule_layout.addWidget(self.status_dot)
         capsule_layout.addWidget(self.status_text_label, 1)
         self.start_button.clicked.connect(self.start_requested.emit)
         self.stop_button.clicked.connect(self.stop_requested.emit)
+        self.start_button.setFixedHeight(44)
+        self.stop_button.setFixedHeight(44)
         actions = QHBoxLayout()
+        actions.setSpacing(14)
+        actions.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         actions.addWidget(self.status_capsule)
         actions.addWidget(self.start_button)
         actions.addWidget(self.stop_button)
@@ -293,7 +299,7 @@ class DashboardPage(QWidget):
 
     def set_status_state(self, state: str, text: str | None = None) -> None:
         self.status_state = state
-        status_text = text or tr(self.language, f"status_{state}")
+        status_text = self._display_status_text(state, text)
         self.status_dot.setToolTip(status_text)
         self.status_text_label.setText(elide_status(status_text))
         self.status_text_label.setToolTip(status_text)
@@ -307,11 +313,35 @@ class DashboardPage(QWidget):
             "error": "#dc2626",
         }
         self.status_dot.setStyleSheet(
-            f"background: {dot_colors.get(state, dot_colors['idle'])}; border-radius: 8px;"
+            f"""
+            QFrame#StatusDot {{
+                background: {dot_colors.get(state, dot_colors['idle'])};
+                border-radius: 7px;
+                min-width: 14px;
+                max-width: 14px;
+                min-height: 14px;
+                max-height: 14px;
+            }}
+            """
         )
 
     def _refresh_status_text(self) -> None:
         self.set_status_state(self.status_state)
+
+    def _display_status_text(self, state: str, text: str | None) -> str:
+        if text:
+            known_statuses = {
+                tr(self.language, "status_idle"),
+                tr(self.language, "status_running"),
+                tr(self.language, "status_done"),
+                tr(self.language, "status_error"),
+                tr(self.language, "status_normal"),
+                tr(self.language, "status_initializing"),
+                tr(self.language, "status_check_prompt"),
+                tr(self.language, "status_check_setting"),
+            }
+            return text if text in known_statuses else tr(self.language, f"status_{state}")
+        return tr(self.language, f"status_{state}")
 
     def append_log(self, message: str) -> None:
         self.log_view.appendPlainText(message)
@@ -351,8 +381,6 @@ class SettingPage(QWidget):
         self.open_config_button = QPushButton()
         self.open_config_external_button = QPushButton()
         self.config_path = GUI_CONFIG_PATH
-        self.file_dirty = False
-        self.apply_dirty = False
         self.loading = False
         self.form = QFormLayout()
         self.form_labels: dict[str, QLabel] = {}
@@ -367,13 +395,28 @@ class SettingPage(QWidget):
 
         hero = QFrame()
         hero.setObjectName("FloatingHeader")
-        hero_layout = QVBoxLayout(hero)
+        hero_layout = QHBoxLayout(hero)
         hero_layout.setContentsMargins(24, 22, 24, 22)
+        hero_layout.setSpacing(18)
+        hero_text = QVBoxLayout()
+        hero_text.setSpacing(6)
         self.title_label.setObjectName("PageTitle")
         self.subtitle_label.setObjectName("PageSubtitle")
         self.subtitle_label.setWordWrap(True)
-        hero_layout.addWidget(self.title_label)
-        hero_layout.addWidget(self.subtitle_label)
+        hero_text.addWidget(self.title_label)
+        hero_text.addWidget(self.subtitle_label)
+        hero_layout.addLayout(hero_text, 1)
+
+        self.api_test_result_button.setObjectName("CheckResultButton")
+        self.api_test_result_button.setProperty("clickable", False)
+        self.api_test_result_button.setFixedSize(150, 44)
+        self.test_api_button.setFixedHeight(44)
+        header_actions = QHBoxLayout()
+        header_actions.setSpacing(14)
+        header_actions.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        header_actions.addWidget(self.api_test_result_button)
+        header_actions.addWidget(self.test_api_button)
+        hero_layout.addLayout(header_actions)
         outer.addWidget(hero)
 
         scroll = QScrollArea()
@@ -414,17 +457,13 @@ class SettingPage(QWidget):
         buttons = QHBoxLayout()
         buttons.setContentsMargins(14, 14, 14, 14)
         buttons.setSpacing(10)
-        self.api_test_result_button.setObjectName("CheckResultButton")
-        self.api_test_result_button.setProperty("clickable", False)
-        buttons.addWidget(self.test_api_button)
-        buttons.addWidget(self.api_test_result_button, 1)
-        buttons.addStretch(1)
         buttons.addWidget(self.new_config_button)
         buttons.addWidget(self.open_config_button)
         buttons.addWidget(self.open_config_external_button)
         buttons.addWidget(self.save_button)
         buttons.addWidget(self.save_as_button)
         buttons.addWidget(self.apply_button)
+        buttons.addStretch(1)
         button_bar = QFrame()
         button_bar.setObjectName("FloatingBar")
         button_bar.setLayout(buttons)
@@ -442,7 +481,6 @@ class SettingPage(QWidget):
         self.set_available_models([settings.ai_model], settings.ai_model)
         self.paper_text_limit_input.setValue(settings.paper_text_limit)
         self.loading = False
-        self.set_clean()
 
     def retranslate(self, language: str) -> None:
         self.language = language
@@ -460,7 +498,6 @@ class SettingPage(QWidget):
         self.open_config_button.setText(tr(language, "open_config"))
         self.open_config_external_button.setText(tr(language, "open_external"))
         self._rebuild_form()
-        self._refresh_dirty_buttons()
 
     def _rebuild_form(self) -> None:
         rows = [
@@ -479,7 +516,6 @@ class SettingPage(QWidget):
         for key, label in self.form_labels.items():
             label.setText(tr(self.language, key))
         self.ai_base_url_input.setPlaceholderText(tr(self.language, "ai_base_url_hint"))
-        self._connect_dirty_signals()
 
     def current_settings(self) -> Settings:
         return Settings(
@@ -501,20 +537,16 @@ class SettingPage(QWidget):
     def _save(self) -> None:
         self._save_to_file(show_message=True)
 
-    def _save_to_file(self, show_message: bool) -> None:
+    def _save_to_file(self, show_message: bool) -> bool:
         settings = self.current_settings()
         save_settings_xml(settings, config_path=self.config_path, profile="gui")
-        self.file_dirty = False
-        self._refresh_dirty_buttons()
         self.saved.emit(settings)
         if show_message:
             QMessageBox.information(self, tr(self.language, "saved"), tr(self.language, "setting_saved_message"))
+        return True
 
     def _apply(self) -> None:
-        settings = self.current_settings()
-        self.apply_dirty = False
-        self._refresh_dirty_buttons()
-        self.applied.emit(settings)
+        self.apply_changes()
 
     def _open_file(self, path: Path) -> None:
         self._open_file_external(path)
@@ -528,8 +560,6 @@ class SettingPage(QWidget):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
     def open_config_file(self) -> None:
-        if self.has_pending_changes() and not self.confirm_replace_current_file():
-            return
         path_text, _ = QFileDialog.getOpenFileName(
             self,
             tr(self.language, "open_config"),
@@ -541,22 +571,6 @@ class SettingPage(QWidget):
         self.config_path = Path(path_text)
         self.load_settings(load_settings(config_path=self.config_path, validate_required=False, profile="gui"))
 
-    def confirm_replace_current_file(self) -> bool:
-        choice = QMessageBox.question(
-            self,
-            tr(self.language, "unsaved_title"),
-            tr(self.language, "replace_file_message"),
-            QMessageBox.StandardButton.Save
-            | QMessageBox.StandardButton.Discard
-            | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if choice == QMessageBox.StandardButton.Cancel:
-            return False
-        if choice == QMessageBox.StandardButton.Save:
-            self.save_changes()
-        return True
-
     def new_config(self) -> None:
         self.notion_token_input.clear()
         self.notion_database_id_input.clear()
@@ -564,9 +578,8 @@ class SettingPage(QWidget):
         self.ai_base_url_input.clear()
         self.ai_model_input.setCurrentText("")
         self.paper_text_limit_input.setValue(50_000)
-        self.mark_dirty()
 
-    def save_as(self) -> None:
+    def save_as(self, show_message: bool = False) -> bool:
         path_text, _ = QFileDialog.getSaveFileName(
             self,
             tr(self.language, "save_as"),
@@ -574,11 +587,12 @@ class SettingPage(QWidget):
             "XML (*.xml)",
         )
         if not path_text:
-            return
+            return False
         self.config_path = Path(path_text)
         save_settings_xml(self.current_settings(), config_path=self.config_path, profile="gui")
-        self.file_dirty = False
-        self._refresh_dirty_buttons()
+        if show_message:
+            QMessageBox.information(self, tr(self.language, "saved"), tr(self.language, "setting_saved_message"))
+        return True
 
     def set_check_running(self, target: str) -> None:
         self.api_check_failed = False
@@ -654,59 +668,16 @@ class SettingPage(QWidget):
         self.api_test_result_button.style().unpolish(self.api_test_result_button)
         self.api_test_result_button.style().polish(self.api_test_result_button)
 
-    def mark_dirty(self) -> None:
-        if self.loading:
-            return
-        self.file_dirty = True
-        self.apply_dirty = True
-        self._refresh_dirty_buttons()
+    def save_and_apply(self) -> bool:
+        return self.save_changes() and self.apply_changes()
 
-    def set_clean(self) -> None:
-        self.file_dirty = False
-        self.apply_dirty = False
-        self._refresh_dirty_buttons()
+    def apply_changes(self) -> bool:
+        settings = self.current_settings()
+        self.applied.emit(settings)
+        return True
 
-    def has_pending_changes(self) -> bool:
-        return self.file_dirty or self.apply_dirty
-
-    def has_unapplied_changes(self) -> bool:
-        return self.apply_dirty
-
-    def has_unsaved_changes(self) -> bool:
-        return self.file_dirty
-
-    def save_and_apply(self) -> None:
-        save_settings_xml(self.current_settings(), config_path=self.config_path, profile="gui")
-        self.file_dirty = False
-        self._apply()
-
-    def apply_changes(self) -> None:
-        self._apply()
-
-    def save_changes(self) -> None:
-        self._save_to_file(show_message=False)
-
-    def discard_changes(self) -> None:
-        self.load_settings(self.settings)
-
-    def _refresh_dirty_buttons(self) -> None:
-        self.save_button.setEnabled(self.file_dirty)
-        self.save_as_button.setEnabled(True)
-        self.apply_button.setEnabled(self.apply_dirty)
-
-    def _connect_dirty_signals(self) -> None:
-        if getattr(self, "_dirty_signals_connected", False):
-            return
-        for line_edit in (
-            self.notion_token_input,
-            self.notion_database_id_input,
-            self.ai_api_key_input,
-            self.ai_base_url_input,
-        ):
-            line_edit.textChanged.connect(self.mark_dirty)
-        self.ai_model_input.currentTextChanged.connect(self.mark_dirty)
-        self.paper_text_limit_input.valueChanged.connect(self.mark_dirty)
-        self._dirty_signals_connected = True
+    def save_changes(self) -> bool:
+        return self._save_to_file(show_message=False)
 
     def _set_combo_value(self, combo: QComboBox, value: str) -> None:
         index = combo.findData(value)
@@ -715,7 +686,6 @@ class SettingPage(QWidget):
 
 
 class PromptPage(QWidget):
-    saved = Signal(object)
     applied = Signal(object)
 
     def __init__(self, settings: Settings, language: str) -> None:
@@ -724,22 +694,15 @@ class PromptPage(QWidget):
         self.language = language
         self.prompt_language = settings.prompt_language
         self.prompt_file_path = prompt_path("gui", self.prompt_language)
-        self.file_dirty = False
-        self.apply_dirty = False
-        self.default_prompt_loaded = False
-        self.loading = False
         self.title_label = QLabel()
         self.subtitle_label = QLabel()
         self.prompt_file_hint_label = QLabel()
-        self.prompt_editor_label = QLabel()
+        self.prompt_preview_label = QLabel()
         self.prompt_path_input = QLineEdit()
         self.open_prompt_file_button = QPushButton()
         self.prompt_language_button = QPushButton()
-        self.prompt_editor = QTextEdit()
-        self.new_prompt_button = QPushButton()
-        self.save_button = QPushButton()
-        self.save_as_button = QPushButton()
-        self.apply_button = QPushButton()
+        self.prompt_preview = QTextEdit()
+        self.reload_prompt_button = QPushButton()
         self.open_prompt_external_button = QPushButton()
         self._build()
         self.load_settings(settings)
@@ -766,6 +729,7 @@ class PromptPage(QWidget):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(24, 24, 24, 30)
         card_layout.setSpacing(14)
+
         path_layout = QHBoxLayout()
         path_layout.setSpacing(10)
         self.prompt_path_input.setReadOnly(True)
@@ -773,153 +737,69 @@ class PromptPage(QWidget):
         path_layout.addWidget(self.prompt_language_button)
         path_layout.addWidget(self.prompt_path_input, 1)
         path_layout.addWidget(self.open_prompt_file_button)
-        self.prompt_editor.setMinimumHeight(260)
-        self.prompt_editor.setSizePolicy(
+
+        self.prompt_preview.setReadOnly(True)
+        self.prompt_preview.setMinimumHeight(260)
+        self.prompt_preview.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
         )
         self.prompt_file_hint_label.setObjectName("CardSubtitle")
-        self.prompt_editor_label.setObjectName("CardSubtitle")
+        self.prompt_preview_label.setObjectName("CardSubtitle")
         self.prompt_file_hint_label.setWordWrap(True)
         card_layout.addWidget(self.prompt_file_hint_label)
         card_layout.addLayout(path_layout)
-        card_layout.addWidget(self.prompt_editor_label)
-        card_layout.addWidget(self.prompt_editor, 1)
+        card_layout.addWidget(self.prompt_preview_label)
+        card_layout.addWidget(self.prompt_preview, 1)
         outer.addWidget(card, 1)
 
         buttons = QHBoxLayout()
         buttons.setContentsMargins(14, 14, 14, 14)
-        buttons.addWidget(self.new_prompt_button)
-        buttons.addWidget(self.save_button)
-        buttons.addWidget(self.save_as_button)
         buttons.addWidget(self.open_prompt_external_button)
+        buttons.addWidget(self.reload_prompt_button)
         buttons.addStretch(1)
-        buttons.addWidget(self.apply_button)
         button_bar = QFrame()
         button_bar.setObjectName("FloatingBar")
         button_bar.setLayout(buttons)
         outer.addWidget(button_bar)
 
-        self.prompt_editor.textChanged.connect(self._mark_text_dirty)
         self.prompt_language_button.clicked.connect(self.cycle_prompt_language)
-        self.new_prompt_button.clicked.connect(self.new_prompt)
-        self.save_button.clicked.connect(self._save)
-        self.save_as_button.clicked.connect(self.save_as)
-        self.apply_button.clicked.connect(self._apply)
-        self.open_prompt_external_button.clicked.connect(lambda: self._open_file_external())
+        self.open_prompt_external_button.clicked.connect(self.open_file_external)
         self.open_prompt_file_button.clicked.connect(self.open_prompt_file)
+        self.reload_prompt_button.clicked.connect(self.reload_prompt_preview)
 
     def load_settings(self, settings: Settings) -> None:
-        self.loading = True
         self.settings = settings
         self.prompt_language = settings.prompt_language
         self.prompt_file_path = prompt_path("gui", self.prompt_language)
-        self.default_prompt_loaded = not self.prompt_file_path.exists()
-        self.prompt_editor.setPlainText(get_prompt("gui", self.prompt_language))
-        self.prompt_path_input.setText(str(self.prompt_file_path))
-        self.loading = False
-        self.set_clean()
+        self.reload_prompt_preview(emit_applied=False)
 
     def retranslate(self, language: str) -> None:
         self.language = language
         self.title_label.setText(tr(language, "prompt_title_page"))
         self.subtitle_label.setText(tr(language, "prompt_subtitle_page"))
-        self.prompt_file_hint_label.setText(tr(language, "prompt_file_hint"))
-        self.prompt_editor_label.setText(tr(language, "prompt"))
+        self.prompt_file_hint_label.setText(tr(language, "prompt_preview_hint"))
+        self.prompt_preview_label.setText(tr(language, "prompt_preview"))
         self.open_prompt_file_button.setText(tr(language, "open"))
         self.prompt_language_button.setText(LANGUAGE_SHORT_LABELS[self.prompt_language])
-        self.new_prompt_button.setText(tr(language, "new_file"))
-        self.save_button.setText(tr(language, "save"))
-        self.save_as_button.setText(tr(language, "save_as"))
-        self.apply_button.setText(tr(language, "apply"))
         self.open_prompt_external_button.setText(tr(language, "open_external"))
-        self._refresh_dirty_buttons()
+        self.reload_prompt_button.setText(tr(language, "reload_prompt"))
 
     def apply_to_settings(self, settings: Settings) -> Settings:
         settings.profile = "gui"
         settings.prompt_language = self.prompt_language
-        settings.prompt = self.prompt_editor.toPlainText().strip()
+        settings.prompt = self.prompt_preview.toPlainText().strip()
         settings.user_prompt_template = get_user_prompt_template("gui", settings.prompt_language)
         return settings
 
-    def _save(self) -> None:
-        self._save_to_file(show_message=True)
-
-    def _save_to_file(self, show_message: bool) -> None:
-        if self.default_prompt_loaded:
-            self.save_as()
-            return
-        settings = self.apply_to_settings(self.settings)
-        write_prompt_xml(
-            path=self.prompt_file_path,
-            profile="gui",
-            language=settings.prompt_language,
-            content=settings.prompt,
-        )
-        self.file_dirty = False
-        self.default_prompt_loaded = False
-        self._refresh_dirty_buttons()
-        if show_message:
-            QMessageBox.information(self, tr(self.language, "saved"), tr(self.language, "prompt_saved_message"))
-
-    def _apply(self) -> None:
-        settings = self.apply_to_settings(self.settings)
-        self.apply_dirty = False
-        self._refresh_dirty_buttons()
-        self.applied.emit(settings)
-
     def cycle_prompt_language(self) -> None:
-        if not self.confirm_discard_for_language_change():
-            return
-        self.set_prompt_language(next_language(self.prompt_language), mark_apply_dirty=True)
+        self.set_prompt_language(next_language(self.prompt_language), emit_applied=True)
 
-    def set_prompt_language(self, language: str, mark_apply_dirty: bool) -> None:
+    def set_prompt_language(self, language: str, emit_applied: bool = True) -> None:
         self.prompt_language = language if language in LANGUAGE_CYCLE else "zh"
         self.prompt_file_path = prompt_path("gui", self.prompt_language)
-        self.default_prompt_loaded = not self.prompt_file_path.exists()
-        self.loading = True
-        self.prompt_editor.setPlainText(get_prompt("gui", self.prompt_language))
-        self.prompt_path_input.setText(str(self.prompt_file_path))
-        self.loading = False
-        self.file_dirty = False
-        self.apply_dirty = mark_apply_dirty
         self.prompt_language_button.setText(LANGUAGE_SHORT_LABELS[self.prompt_language])
-        self._refresh_dirty_buttons()
-
-    def new_prompt(self) -> None:
-        if not self.confirm_discard_for_language_change():
-            return
-        self.prompt_file_path = Path("")
-        self.default_prompt_loaded = True
-        self.loading = True
-        self.prompt_editor.clear()
-        self.prompt_path_input.setText("")
-        self.loading = False
-        self.file_dirty = True
-        self.apply_dirty = True
-        self._refresh_dirty_buttons()
-
-    def save_as(self) -> None:
-        path_text, _ = QFileDialog.getSaveFileName(
-            self,
-            tr(self.language, "save_as"),
-            str(prompt_path("gui", self.prompt_language)),
-            "XML (*.xml)",
-        )
-        if not path_text:
-            return
-        self.prompt_file_path = Path(path_text)
-        settings = self.apply_to_settings(self.settings)
-        write_prompt_xml(
-            path=self.prompt_file_path,
-            profile="gui",
-            language=settings.prompt_language,
-            content=settings.prompt,
-        )
-        self.prompt_path_input.setText(str(self.prompt_file_path))
-        self.default_prompt_loaded = False
-        self.file_dirty = False
-        self._refresh_dirty_buttons()
+        self.reload_prompt_preview(emit_applied=emit_applied)
 
     def open_prompt_file(self) -> None:
         path_text, _ = QFileDialog.getOpenFileName(
@@ -930,83 +810,33 @@ class PromptPage(QWidget):
         )
         if not path_text:
             return
-        if not self.confirm_discard_for_language_change():
-            return
-        self.load_prompt_file_path(Path(path_text), mark_apply_dirty=True)
+        self.load_prompt_file_path(Path(path_text), emit_applied=True)
 
-    def load_prompt_file_path(self, path: Path, mark_apply_dirty: bool) -> None:
+    def load_prompt_file_path(self, path: Path, emit_applied: bool = True) -> None:
         if not path.exists():
             return
         self.prompt_file_path = path
-        self.loading = True
-        self.prompt_editor.setPlainText(read_system_prompt_xml(self.prompt_file_path))
+        self.prompt_preview.setPlainText(read_system_prompt_xml(self.prompt_file_path))
         self.prompt_path_input.setText(str(self.prompt_file_path))
-        self.loading = False
-        self.default_prompt_loaded = False
-        self.file_dirty = False
-        self.apply_dirty = mark_apply_dirty
-        self._refresh_dirty_buttons()
+        if emit_applied:
+            self.applied.emit(self.apply_to_settings(self.settings))
 
-    def _open_file_external(self) -> None:
-        if not self.prompt_file_path:
-            return
-        path = self.prompt_file_path if self.prompt_file_path.exists() else ensure_prompt_xml("gui", self.prompt_language)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
+    def reload_prompt_preview(self, emit_applied: bool = True) -> None:
+        if self.prompt_file_path.exists():
+            content = read_system_prompt_xml(self.prompt_file_path)
+        else:
+            self.prompt_file_path = ensure_prompt_xml("gui", self.prompt_language)
+            content = read_system_prompt_xml(self.prompt_file_path)
+        self.prompt_preview.setPlainText(content)
+        self.prompt_path_input.setText(str(self.prompt_file_path))
+        if emit_applied:
+            self.applied.emit(self.apply_to_settings(self.settings))
 
-    def _mark_text_dirty(self) -> None:
-        if self.loading:
-            return
-        self.file_dirty = True
-        self.apply_dirty = True
-        self._refresh_dirty_buttons()
-
-    def set_clean(self) -> None:
-        self.file_dirty = False
-        self.apply_dirty = False
-        self._refresh_dirty_buttons()
-
-    def has_pending_changes(self) -> bool:
-        return self.file_dirty or self.apply_dirty
-
-    def has_unapplied_changes(self) -> bool:
-        return self.apply_dirty
-
-    def has_unsaved_changes(self) -> bool:
-        return self.file_dirty
-
-    def save_and_apply(self) -> None:
-        self._save()
-        self._apply()
-
-    def apply_changes(self) -> None:
-        self._apply()
-
-    def save_changes(self) -> None:
-        self._save_to_file(show_message=False)
-
-    def discard_changes(self) -> None:
-        self.load_settings(self.settings)
-
-    def confirm_discard_for_language_change(self) -> bool:
-        if not self.has_pending_changes():
-            return True
-        return QMessageBox.question(
-            self,
-            tr(self.language, "unsaved_title"),
-            tr(self.language, "discard_for_language"),
-            QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        ) == QMessageBox.StandardButton.Discard
-
-    def _refresh_dirty_buttons(self) -> None:
-        self.save_button.setEnabled(self.file_dirty)
-        self.save_as_button.setEnabled(self.file_dirty or self.default_prompt_loaded)
-        self.apply_button.setEnabled(self.apply_dirty)
-
-    def _set_combo_value(self, combo: QComboBox, value: str) -> None:
-        index = combo.findData(value)
-        if index >= 0:
-            combo.setCurrentIndex(index)
+    def open_file_external(self) -> None:
+        if not self.prompt_file_path.exists():
+            self.prompt_file_path = ensure_prompt_xml("gui", self.prompt_language)
+            self.reload_prompt_preview(emit_applied=False)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.prompt_file_path.resolve())))
 
 
 class MainWindow(QMainWindow):
@@ -1069,7 +899,7 @@ class MainWindow(QMainWindow):
         if self.app_state.last_prompt_path:
             remembered_prompt = Path(self.app_state.last_prompt_path)
             if remembered_prompt.stem == self.prompt_page.prompt_language:
-                self.prompt_page.load_prompt_file_path(remembered_prompt, mark_apply_dirty=False)
+                self.prompt_page.load_prompt_file_path(remembered_prompt, emit_applied=False)
         self._build_shell()
 
         self.dashboard.start_requested.connect(self.start_pipeline)
@@ -1160,11 +990,9 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def set_language(self, language: str) -> None:
-        if self.prompt_page.has_pending_changes() and not self.prompt_page.confirm_discard_for_language_change():
-            return
         self.language = language
         self.settings.ui_language = language
-        self.prompt_page.set_prompt_language(language, mark_apply_dirty=True)
+        self.prompt_page.set_prompt_language(language, emit_applied=True)
         self.settings.prompt_language = language
         self._build_theme_menu()
         self.retranslate()
@@ -1208,24 +1036,6 @@ class MainWindow(QMainWindow):
 
     @Slot(int)
     def request_navigation(self, index: int) -> None:
-        current_page = self.stack.currentWidget()
-        if hasattr(current_page, "has_unapplied_changes") and current_page.has_unapplied_changes():
-            choice = QMessageBox.question(
-                self,
-                tr(self.language, "unapplied_title"),
-                tr(self.language, "unapplied_message"),
-                QMessageBox.StandardButton.Apply
-                | QMessageBox.StandardButton.Discard
-                | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Cancel,
-            )
-            if choice == QMessageBox.StandardButton.Cancel:
-                self.nav_group.button(self.stack.currentIndex()).setChecked(True)
-                return
-            if choice == QMessageBox.StandardButton.Apply:
-                current_page.apply_changes()
-            elif choice == QMessageBox.StandardButton.Discard:
-                current_page.discard_changes()
         self.stack.setCurrentIndex(index)
         self.nav_group.button(index).setChecked(True)
 
@@ -1453,26 +1263,6 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
 
     def closeEvent(self, event: QEvent) -> None:
-        dirty_pages = [
-            page for page in (self.prompt_page, self.setting_page)
-            if hasattr(page, "has_unsaved_changes") and page.has_unsaved_changes()
-        ]
-        if dirty_pages:
-            choice = QMessageBox.question(
-                self,
-                tr(self.language, "unsaved_title"),
-                tr(self.language, "close_unsaved_message"),
-                QMessageBox.StandardButton.Save
-                | QMessageBox.StandardButton.Discard
-                | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Cancel,
-            )
-            if choice == QMessageBox.StandardButton.Cancel:
-                event.ignore()
-                return
-            if choice == QMessageBox.StandardButton.Save:
-                for page in dirty_pages:
-                    page.save_changes()
         self.save_current_app_state()
         for thread in (self.model_thread, self.check_thread, self.thread):
             if thread and thread.isRunning():
@@ -1700,16 +1490,17 @@ class MainWindow(QMainWindow):
             }
             QPushButton#CheckResultButton {
                 color: %(muted)s;
-                padding: 7px 10px;
-                border-radius: 8px;
-                background: transparent;
+                padding: 0px 10px;
+                border: 1px solid %(border)s;
+                border-radius: 13px;
+                background: %(surface_2)s;
                 text-align: center;
             }
             QPushButton#CheckResultButton:hover {
                 background: %(nav_hover)s;
             }
             QPushButton#CheckResultButton[clickable="false"]:hover {
-                background: transparent;
+                background: %(surface_2)s;
             }
             QPushButton#CheckResultButton[state="running"] {
                 color: #d97706;

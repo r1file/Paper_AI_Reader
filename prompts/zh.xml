@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<paper_ai_reader_prompt profile="default" language="zh">
+<paper_ai_reader_prompt profile="shared" language="zh">
   <system_prompt>你是一个帮助机器人方向研究者阅读论文的中文科研助手。
 
 研究方向：

@@ -6,6 +6,7 @@ from xml.etree import ElementTree as ET
 
 from paper_ai_reader.prompts import (
     DEFAULT_PROMPT_LANGUAGE,
+    default_prompt_path,
     get_prompt,
     get_user_prompt_template,
     normalized_language,
@@ -219,9 +220,9 @@ def validate_runtime_files(profile: str = "gui", config_path: str | Path | None 
             errors.append(f"Invalid config XML: {exc}")
 
     for language in ("zh", "ja", "en"):
-        prompt_file = default_config_path("gui").parent.parent / "prompts" / "default" / f"{language}.xml"
+        prompt_file = default_prompt_path(language)
         if not prompt_file.exists():
-            errors.append(f"Missing default prompt XML: {prompt_file}")
+            errors.append(f"Missing prompt XML: {prompt_file}")
             continue
         try:
             root = ET.parse(prompt_file).getroot()
