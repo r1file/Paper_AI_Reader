@@ -7,3 +7,7 @@ __pycache__/
 app_config.json
 prompts/custom_prompt.md
 config/settings.xml
+build/
+dist/
+release/
+*.spec

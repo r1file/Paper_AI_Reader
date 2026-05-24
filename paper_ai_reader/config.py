@@ -11,11 +11,13 @@ from paper_ai_reader.prompts import (
     get_user_prompt_template,
     normalized_language,
 )
+from paper_ai_reader.runtime_paths import config_dir, ensure_runtime_files
 
 
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_TEXT_LIMIT = 50_000
-CONFIG_DIR = Path("config")
+ensure_runtime_files()
+CONFIG_DIR = config_dir()
 SETTINGS_CONFIG_PATH = CONFIG_DIR / "settings.xml"
 SETTINGS_EXAMPLE_PATH = CONFIG_DIR / "settings.example.xml"
 CLI_CONFIG_PATH = SETTINGS_CONFIG_PATH

@@ -201,6 +201,23 @@ PY
 
 返回空列表表示 XML 有效。
 
+## Release 打包
+
+构建当前平台应用和源码 zip：
+
+```bash
+python scripts/build_release.py --version v0.1.0
+```
+
+产物会写入 `release/`。Python 桌面应用需要在目标平台打包，因此要生成
+macOS、Linux、Windows 三端应用，可以运行 `.github/workflows/release.yml`
+中的手动 GitHub Actions 工作流，或分别在三种系统上执行该脚本。
+当 GitHub Release 发布时，该 workflow 也会自动运行，并把生成的 zip 文件上传到
+对应 release。
+
+打包后的桌面应用会在首次启动时把 `settings.example.xml` 和 prompt XML 复制到用户
+配置目录。源码运行时仍使用仓库内的 `config/settings.xml` 和 `prompts/*.xml`。
+
 ## 注意事项
 
 - 运行用 XML 可能包含密钥，不要提交。

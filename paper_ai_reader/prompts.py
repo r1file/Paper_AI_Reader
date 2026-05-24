@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from paper_ai_reader.runtime_paths import ensure_runtime_files, prompt_dir
+
 
 DEFAULT_PROMPT_LANGUAGE = "zh"
 PROMPT_PROFILES = {"cli", "gui"}
@@ -13,7 +15,8 @@ PROMPT_LANGUAGE_LABELS = {
     "en": "English",
 }
 
-PROMPT_DIR = Path("prompts")
+ensure_runtime_files()
+PROMPT_DIR = prompt_dir()
 
 
 def default_prompt_path(language: str) -> Path:

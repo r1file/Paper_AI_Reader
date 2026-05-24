@@ -207,3 +207,22 @@ PY
 - 現在の実行ロジックは `.env` を読みません。
 - `test_notion.py` と `test_blocks.py` は手動デバッグ用で、Notion API を直接呼び出します。
 - PDF 抽出には `pypdf` を使用しています。複雑なレイアウトでは完全に抽出できない場合があります。
+
+## Release ビルド
+
+現在のプラットフォーム用アプリと source zip を作成します：
+
+```bash
+python scripts/build_release.py --version v0.1.0
+```
+
+成果物は `release/` に出力されます。Python デスクトップアプリは対象 OS 上で
+ビルドする必要があるため、macOS、Linux、Windows 用を作成するには
+`.github/workflows/release.yml` の手動 GitHub Actions workflow を実行するか、
+各 OS でこのスクリプトを実行してください。GitHub Release が published になった
+場合も workflow が実行され、生成された zip が release asset としてアップロード
+されます。
+
+パッケージ化されたデスクトップアプリは、初回起動時に `settings.example.xml` と
+prompt XML をユーザー設定ディレクトリへコピーします。source 実行ではリポジトリ内の
+`config/settings.xml` と `prompts/*.xml` を使います。

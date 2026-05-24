@@ -201,6 +201,24 @@ PY
 
 An empty list means the XML files are valid.
 
+## Release Builds
+
+Build the current platform app and a source zip:
+
+```bash
+python scripts/build_release.py --version v0.1.0
+```
+
+Artifacts are written to `release/`. Python desktop packages are built on the host
+platform, so use the manual GitHub Actions workflow in `.github/workflows/release.yml`
+or run the script on macOS, Linux, and Windows to produce all three app packages.
+The workflow also runs when a GitHub Release is published and uploads the generated
+zip files to that release.
+
+Packaged desktop apps copy `settings.example.xml` and prompt XML files into a user
+config directory on first launch. Source runs use `config/settings.xml` and
+`prompts/*.xml` inside the repository.
+
 ## Notes
 
 - Runtime XML files can contain secrets and should not be committed.
