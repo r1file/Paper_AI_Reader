@@ -90,11 +90,11 @@ def build_app(version: str) -> Path:
     dist_app = ROOT / "dist" / APP_NAME
     if platform.system() == "Darwin":
         dist_app = ROOT / "dist" / f"{APP_NAME}.app"
-    elif platform.system() == "Windows":
-        dist_app = ROOT / "dist" / f"{APP_NAME}.exe"
 
     if not dist_app.exists():
         raise RuntimeError(f"Expected PyInstaller output was not created: {dist_app}")
+    if platform.system() == "Windows" and not (dist_app / f"{APP_NAME}.exe").exists():
+        raise RuntimeError(f"Expected Windows executable was not created: {dist_app / f'{APP_NAME}.exe'}")
 
     archive_path = RELEASE_DIR / f"{MODULE_NAME}-{version}-{tag}.zip"
     if archive_path.exists():
