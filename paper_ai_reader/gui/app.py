@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from pathlib import Path
 
 from paper_ai_reader.config import (
@@ -49,7 +50,7 @@ def system_language() -> str:
     return "en"
 
 try:
-    from PySide6.QtCore import QEvent, QLocale, QObject, Qt, QThread, QTimer, QUrl, Signal, Slot
+    from PySide6.QtCore import QEvent, QLocale, QObject, Qt, QTimer, QUrl, Signal, Slot
     from PySide6.QtGui import QAction, QDesktopServices, QFontDatabase, QPalette
     from PySide6.QtWidgets import (
         QApplication,
@@ -942,11 +943,11 @@ class MainWindow(QMainWindow):
         self.settings.prompt = get_prompt("gui", self.settings.prompt_language)
         self.settings.user_prompt_template = get_user_prompt_template("gui", self.settings.prompt_language)
         self.settings.ui_language = self.language
-        self.thread: QThread | None = None
+        self.thread: threading.Thread | None = None
         self.worker: PipelineWorker | None = None
-        self.check_thread: QThread | None = None
+        self.check_thread: threading.Thread | None = None
         self.check_worker: ConnectivityWorker | None = None
-        self.model_thread: QThread | None = None
+        self.model_thread: threading.Thread | None = None
         self.model_worker: ModelListWorker | None = None
         self.model_fetch_prefer_configured = True
         self.start_after_check = False
@@ -1147,7 +1148,7 @@ class MainWindow(QMainWindow):
 
     def is_background_busy(self) -> bool:
         return any(
-            thread is not None and thread.isRunning()
+            thread is not None and thread.is_alive()
             for thread in (self.thread, self.check_thread, self.model_thread)
         )
 
@@ -1216,20 +1217,15 @@ class MainWindow(QMainWindow):
         self.dashboard.set_running(True)
         self.dashboard.set_status_state("running")
 
-        self.thread = QThread()
         self.worker = PipelineWorker(self.settings)
-        self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.run)
-        self.worker.log.connect(self.dashboard.append_log)
-        self.worker.status.connect(self.dashboard.set_status)
-        self.worker.conversation.connect(self.dashboard.append_conversation)
-        self.worker.failed.connect(self._pipeline_failed)
-        self.worker.finished.connect(self._pipeline_finished)
-        self.worker.finished.connect(self.thread.quit)
-        self.worker.failed.connect(self.thread.quit)
-        self.thread.finished.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
-        self.thread.finished.connect(self._clear_thread)
+        self.worker.log.connect(self.dashboard.append_log, Qt.ConnectionType.QueuedConnection)
+        self.worker.status.connect(self.dashboard.set_status, Qt.ConnectionType.QueuedConnection)
+        self.worker.conversation.connect(self.dashboard.append_conversation, Qt.ConnectionType.QueuedConnection)
+        self.worker.failed.connect(self._pipeline_failed, Qt.ConnectionType.QueuedConnection)
+        self.worker.finished.connect(self._pipeline_finished, Qt.ConnectionType.QueuedConnection)
+        self.worker.finished.connect(self._clear_thread, Qt.ConnectionType.QueuedConnection)
+        self.worker.failed.connect(self._clear_thread, Qt.ConnectionType.QueuedConnection)
+        self.thread = threading.Thread(target=self.worker.run, name="paper-ai-reader-pipeline", daemon=True)
         self.thread.start()
 
     @Slot(str, object)
@@ -1246,19 +1242,14 @@ class MainWindow(QMainWindow):
         self.set_configuration_locked(True)
         self.setting_page.set_check_running(target)
         self.dashboard.set_status_state("running")
-        self.check_thread = QThread()
         self.check_worker = ConnectivityWorker(settings, target)
-        self.check_worker.moveToThread(self.check_thread)
-        self.check_thread.started.connect(self.check_worker.run)
-        self.check_worker.log.connect(self.dashboard.append_log)
-        self.check_worker.result.connect(self._connectivity_result)
-        self.check_worker.failed.connect(self._connectivity_failed)
-        self.check_worker.finished.connect(self._connectivity_finished)
-        self.check_worker.finished.connect(self.check_thread.quit)
-        self.check_worker.failed.connect(self.check_thread.quit)
-        self.check_thread.finished.connect(self.check_worker.deleteLater)
-        self.check_thread.finished.connect(self.check_thread.deleteLater)
-        self.check_thread.finished.connect(self._clear_check_thread)
+        self.check_worker.log.connect(self.dashboard.append_log, Qt.ConnectionType.QueuedConnection)
+        self.check_worker.result.connect(self._connectivity_result, Qt.ConnectionType.QueuedConnection)
+        self.check_worker.failed.connect(self._connectivity_failed, Qt.ConnectionType.QueuedConnection)
+        self.check_worker.finished.connect(self._connectivity_finished, Qt.ConnectionType.QueuedConnection)
+        self.check_worker.finished.connect(self._clear_check_thread, Qt.ConnectionType.QueuedConnection)
+        self.check_worker.failed.connect(self._clear_check_thread, Qt.ConnectionType.QueuedConnection)
+        self.check_thread = threading.Thread(target=self.check_worker.run, name="paper-ai-reader-connectivity", daemon=True)
         self.check_thread.start()
 
     @Slot(str, object)
@@ -1304,18 +1295,13 @@ class MainWindow(QMainWindow):
         self.set_configuration_locked(True)
         self.setting_page.set_models_loading()
         self.dashboard.set_status_state("running")
-        self.model_thread = QThread()
         self.model_worker = ModelListWorker(settings)
-        self.model_worker.moveToThread(self.model_thread)
-        self.model_thread.started.connect(self.model_worker.run)
-        self.model_worker.log.connect(self.dashboard.append_log)
-        self.model_worker.finished.connect(self._models_fetched)
-        self.model_worker.failed.connect(self._models_failed)
-        self.model_worker.finished.connect(self.model_thread.quit)
-        self.model_worker.failed.connect(self.model_thread.quit)
-        self.model_thread.finished.connect(self.model_worker.deleteLater)
-        self.model_thread.finished.connect(self.model_thread.deleteLater)
-        self.model_thread.finished.connect(self._clear_model_thread)
+        self.model_worker.log.connect(self.dashboard.append_log, Qt.ConnectionType.QueuedConnection)
+        self.model_worker.finished.connect(self._models_fetched, Qt.ConnectionType.QueuedConnection)
+        self.model_worker.failed.connect(self._models_failed, Qt.ConnectionType.QueuedConnection)
+        self.model_worker.finished.connect(self._clear_model_thread, Qt.ConnectionType.QueuedConnection)
+        self.model_worker.failed.connect(self._clear_model_thread, Qt.ConnectionType.QueuedConnection)
+        self.model_thread = threading.Thread(target=self.model_worker.run, name="paper-ai-reader-model-list", daemon=True)
         self.model_thread.start()
 
     @Slot(list, str)
@@ -1383,7 +1369,7 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
 
     def closeEvent(self, event: QEvent) -> None:
-        if self.thread and self.thread.isRunning():
+        if self.thread and self.thread.is_alive():
             result = QMessageBox.question(
                 self,
                 tr(self.language, "running_close_title"),
@@ -1408,11 +1394,8 @@ class MainWindow(QMainWindow):
         if unsaved_action != QMessageBox.StandardButton.Discard:
             self.save_current_app_state()
         for thread in (self.model_thread, self.check_thread, self.thread):
-            if thread and thread.isRunning():
-                thread.quit()
-                if not thread.wait(1500):
-                    thread.terminate()
-                    thread.wait(1000)
+            if thread and thread.is_alive():
+                thread.join(1.5)
         super().closeEvent(event)
 
     def _apply_style(self) -> None:
