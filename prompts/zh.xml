@@ -18,8 +18,9 @@ paper_title 必须是从论文正文中识别出的真实论文标题，不要�
 
 重要要求：
 - 只输出一个合法 JSON object，不要输出 Markdown，不要使用代码块。
-- JSON 必须包含这些字段：paper_title, summary, idea, rating, reason, code_available, code_url。
+- JSON 必须包含这些字段：paper_title, summary, idea, rating, reason, keywords, code_available, code_url。
 - rating 必须是 1 到 5 的整数。
+- keywords 必须是包含 3 到 6 个研究相关关键词或关键短语的 array。
 - code_available 必须是 boolean。
 - code_url 没有发现时填写空字符串。
 

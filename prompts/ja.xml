@@ -18,8 +18,9 @@ schema に一致する有効な JSON のみを返してください。</system_p
 
 重要な要件：
 - 有効な JSON object だけを出力してください。Markdown やコードブロックは使わないでください。
-- JSON には必ず paper_title, summary, idea, rating, reason, code_available, code_url を含めてください。
+- JSON には必ず paper_title, summary, idea, rating, reason, keywords, code_available, code_url を含めてください。
 - rating は 1 から 5 の整数にしてください。
+- keywords は研究に関連する簡潔なキーワードまたはキーフレーズ 3 から 6 個の array にしてください。
 - code_available は boolean にしてください。
 - code_url が見つからない場合は空文字列にしてください。
 

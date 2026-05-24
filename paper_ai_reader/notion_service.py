@@ -17,10 +17,13 @@ PROCESSABLE_STATUSES = {TBD_STATUS, READING_STATUS}
 TITLE_PROPERTY = "Title"
 WEBSITE_PROPERTY = "Website"
 STATUS_PROPERTY = "Status"
+KEYWORDS_PROPERTY = "Keywords"
 RICH_TEXT_LIMIT = 2000
 MAX_APPEND_CHILDREN = 100
 NOTION_TIMEOUT_MS = 120_000
 DELETE_RETRIES = 3
+MAX_KEYWORDS = 6
+KEYWORD_TEXT_LIMIT = 80
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,7 @@ class NotionPaperService:
         self.database_id = database_id
         self.data_source_id: str | None = None
         self.status_property_type = "status"
+        self.keywords_property_type: str | None = None
         self._load_database_metadata()
 
     def _load_database_metadata(self) -> None:
@@ -49,6 +53,11 @@ class NotionPaperService:
         property_type = status_property.get("type")
         if property_type in {"status", "select"}:
             self.status_property_type = property_type
+
+        keywords_property = database.get("properties", {}).get(KEYWORDS_PROPERTY, {})
+        keywords_property_type = keywords_property.get("type")
+        if keywords_property_type in {"multi_select", "select", "rich_text"}:
+            self.keywords_property_type = keywords_property_type
 
     def iter_pages(self) -> Iterable[PaperPage]:
         start_cursor = None
@@ -157,10 +166,42 @@ class NotionPaperService:
 
         return block_ids
 
-    def write_analysis(self, page_id: str, analysis: dict[str, Any]) -> None:
-        blocks = build_analysis_blocks(analysis)
+    def write_analysis(self, page_id: str, analysis: dict[str, Any], language: str = "zh") -> None:
+        blocks = build_analysis_blocks(analysis, language)
         for batch in chunked(blocks, MAX_APPEND_CHILDREN):
             self.notion.blocks.children.append(block_id=page_id, children=batch)
+
+    def update_keywords(self, page_id: str, keywords: list[str]) -> None:
+        if not self.keywords_property_type:
+            return
+
+        clean_keywords = normalize_keywords_for_notion(keywords)
+        if self.keywords_property_type == "multi_select":
+            value: dict[str, Any] = {
+                "multi_select": [{"name": keyword} for keyword in clean_keywords],
+            }
+        elif self.keywords_property_type == "select":
+            value = {"select": {"name": clean_keywords[0]} if clean_keywords else None}
+        elif self.keywords_property_type == "rich_text":
+            value = {
+                "rich_text": (
+                    [
+                        {
+                            "type": "text",
+                            "text": {"content": ", ".join(clean_keywords)[:RICH_TEXT_LIMIT]},
+                        }
+                    ]
+                    if clean_keywords
+                    else []
+                )
+            }
+        else:
+            return
+
+        self.notion.pages.update(
+            page_id=page_id,
+            properties={KEYWORDS_PROPERTY: value},
+        )
 
     def update_title(self, page_id: str, title: str) -> None:
         clean_title = title.strip()
@@ -193,7 +234,67 @@ class NotionPaperService:
         )
 
 
-def build_analysis_blocks(analysis: dict[str, Any]) -> list[dict[str, Any]]:
+BLOCK_TEXT = {
+    "zh": {
+        "summary": "🔍 总结",
+        "idea": "💡 对我的研究的启发",
+        "related": "⭐ 与我的研究相关性",
+        "code": "🧪 代码可用性",
+        "yes": "是",
+        "no": "否",
+        "code_url": "GitHub：{url}",
+        "notes": "🧠 我的笔记",
+        "manual_notes": "（自己写）",
+    },
+    "ja": {
+        "summary": "🔍 要約",
+        "idea": "💡 自分の研究へのアイデア",
+        "related": "⭐ 自分の研究との関連性",
+        "code": "🧪 コード公開状況",
+        "yes": "はい",
+        "no": "いいえ",
+        "code_url": "コードURL：{url}",
+        "notes": "🧠 自分のメモ",
+        "manual_notes": "（自分で書く）",
+    },
+    "en": {
+        "summary": "🔍 Summary",
+        "idea": "💡 Idea for My Research",
+        "related": "⭐ Related to My Research",
+        "code": "🧪 Code Availability",
+        "yes": "Yes",
+        "no": "No",
+        "code_url": "Code URL: {url}",
+        "notes": "🧠 My Notes",
+        "manual_notes": "(Write myself)",
+    },
+}
+
+
+def note_language(language: str) -> str:
+    return language if language in BLOCK_TEXT else "zh"
+
+
+def normalize_keywords_for_notion(keywords: list[str]) -> list[str]:
+    clean_keywords: list[str] = []
+    seen: set[str] = set()
+    for keyword in keywords:
+        clean_keyword = str(keyword or "").replace(",", " ").strip()
+        clean_keyword = " ".join(clean_keyword.split())[:KEYWORD_TEXT_LIMIT]
+        if not clean_keyword:
+            continue
+        dedupe_key = clean_keyword.casefold()
+        if dedupe_key in seen:
+            continue
+        clean_keywords.append(clean_keyword)
+        seen.add(dedupe_key)
+        if len(clean_keywords) >= MAX_KEYWORDS:
+            break
+    return clean_keywords
+
+
+def build_analysis_blocks(analysis: dict[str, Any], language: str = "zh") -> list[dict[str, Any]]:
+    text = BLOCK_TEXT[note_language(language)]
     rating = int(analysis.get("rating") or 1)
     rating = min(5, max(1, rating))
     stars = "★" * rating + "☆" * (5 - rating)
@@ -201,19 +302,19 @@ def build_analysis_blocks(analysis: dict[str, Any]) -> list[dict[str, Any]]:
     code_url = str(analysis.get("code_url") or "").strip()
 
     blocks: list[dict[str, Any]] = []
-    blocks.append(heading_2("🔍 总结"))
+    blocks.append(heading_2(text["summary"]))
     blocks.extend(paragraphs(str(analysis.get("summary") or "")))
-    blocks.append(heading_2("💡 对我的研究的启发"))
+    blocks.append(heading_2(text["idea"]))
     blocks.extend(paragraphs(str(analysis.get("idea") or "")))
-    blocks.append(heading_2("⭐ 与我的研究相关性"))
+    blocks.append(heading_2(text["related"]))
     blocks.extend(paragraphs(f"{stars}\n{analysis.get('reason') or ''}"))
-    blocks.append(heading_2("🧪 代码可用性"))
-    code_lines = ["是" if code_available else "否"]
+    blocks.append(heading_2(text["code"]))
+    code_lines = [text["yes"] if code_available else text["no"]]
     if code_url:
-        code_lines.append(f"GitHub：{code_url}")
+        code_lines.append(text["code_url"].format(url=code_url))
     blocks.extend(paragraphs("\n".join(code_lines)))
-    blocks.append(heading_2("🧠 我的笔记"))
-    blocks.extend(paragraphs("（自己写）"))
+    blocks.append(heading_2(text["notes"]))
+    blocks.extend(paragraphs(text["manual_notes"]))
     return blocks
 
 

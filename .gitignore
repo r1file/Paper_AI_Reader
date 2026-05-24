@@ -9,3 +9,5 @@ prompts/custom_prompt.md
 config/cli_config.xml
 config/gui_config.xml
 config/.gui_state.xml
+config/deepseek-setting.xml
+config/gpt-setting.xml

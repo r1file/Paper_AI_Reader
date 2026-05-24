@@ -59,11 +59,11 @@ class AppState:
 
     @property
     def openai_api_key(self) -> str:
-        return self.ai_api_key
+        return ""
 
     @property
     def openai_model(self) -> str:
-        return self.ai_model
+        return ""
 
 
 def load_settings(

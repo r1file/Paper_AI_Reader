@@ -18,8 +18,9 @@ Return only valid JSON matching the schema.</system_prompt>
 
 Important requirements:
 - Output exactly one valid JSON object. Do not output Markdown or code fences.
-- The JSON must include these fields: paper_title, summary, idea, rating, reason, code_available, code_url.
+- The JSON must include these fields: paper_title, summary, idea, rating, reason, keywords, code_available, code_url.
 - rating must be an integer from 1 to 5.
+- keywords must be an array of 3 to 6 concise research-relevant keywords or key phrases.
 - code_available must be a boolean.
 - If no code URL is found, set code_url to an empty string.
 

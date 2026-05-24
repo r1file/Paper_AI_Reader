@@ -209,13 +209,15 @@ class PipelineRunner:
                     self._log(self._t("update_title", title=paper_title))
                     notion.update_title(paper.page_id, paper_title)
 
+                notion.update_keywords(paper.page_id, analysis.get("keywords", []))
+
                 self._status(self._t("delete_status", title=paper.title))
                 self._log(self._t("delete"))
                 notion.delete_all_blocks(paper.page_id)
 
                 self._status(self._t("write_status", title=paper.title))
                 self._log(self._t("write"))
-                notion.write_analysis(paper.page_id, analysis)
+                notion.write_analysis(paper.page_id, analysis, self.settings.prompt_language)
 
                 self._status(self._t("done_status", title=paper.title))
                 self._log(self._t("done_update"))

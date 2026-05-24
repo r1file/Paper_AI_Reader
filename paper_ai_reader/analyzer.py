@@ -17,31 +17,36 @@ ANALYSIS_SCHEMA: dict[str, Any] = {
     "properties": {
         "paper_title": {
             "type": "string",
-            "description": "从论文正文中识别出的真实论文标题，保留原文标题，不要翻译。",
+            "description": "The real paper title identified from the paper content. Preserve the original title and do not translate it.",
         },
         "summary": {
             "type": "string",
-            "description": "中文论文总结，聚焦方法、贡献与发现。",
+            "description": "A concise paper summary focused on methods, contributions, and findings. Use the language requested by the prompt.",
         },
         "idea": {
             "type": "string",
-            "description": "中文说明如何将论文迁移或启发到用户的研究。",
+            "description": "How the paper can inspire, support, or transfer to the user's research. Use the language requested by the prompt.",
         },
         "rating": {
             "type": "integer",
-            "description": "与用户研究方向的相关性，1 到 5。",
+            "description": "Relevance to the user's research direction, from 1 to 5.",
         },
         "reason": {
             "type": "string",
-            "description": "中文简短说明评分理由。",
+            "description": "A short reason for the relevance rating. Use the language requested by the prompt.",
+        },
+        "keywords": {
+            "type": "array",
+            "description": "Three to six concise research-relevant keywords or key phrases, preserving standard technical terms such as LLM, ROS2, HRI, or dataset/model names.",
+            "items": {"type": "string"},
         },
         "code_available": {
             "type": "boolean",
-            "description": "论文文本是否显示代码可用。",
+            "description": "Whether the paper text indicates available code.",
         },
         "code_url": {
             "type": "string",
-            "description": "如果发现 GitHub 或代码 URL 则填写，否则为空字符串。",
+            "description": "GitHub or code URL if found; otherwise an empty string.",
         },
     },
     "required": [
@@ -50,6 +55,7 @@ ANALYSIS_SCHEMA: dict[str, Any] = {
         "idea",
         "rating",
         "reason",
+        "keywords",
         "code_available",
         "code_url",
     ],
@@ -198,15 +204,43 @@ def normalize_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         rating = 1
 
+    keywords = normalize_keywords(analysis.get("keywords"))
+
     return {
         "paper_title": str(analysis.get("paper_title") or "").strip(),
         "summary": str(analysis.get("summary") or "").strip(),
         "idea": str(analysis.get("idea") or "").strip(),
         "rating": min(5, max(1, rating)),
         "reason": str(analysis.get("reason") or "").strip(),
+        "keywords": keywords,
         "code_available": bool(analysis.get("code_available")),
         "code_url": str(analysis.get("code_url") or "").strip(),
     }
+
+
+def normalize_keywords(value: Any) -> list[str]:
+    if isinstance(value, str):
+        candidates = re.split(r"[,;、，；\n]", value)
+    elif isinstance(value, list):
+        candidates = value
+    else:
+        candidates = []
+
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        keyword = str(candidate or "").strip()
+        keyword = re.sub(r"\s+", " ", keyword).strip(" ,;、，；")
+        if not keyword:
+            continue
+        dedupe_key = keyword.casefold()
+        if dedupe_key in seen:
+            continue
+        keywords.append(keyword[:80])
+        seen.add(dedupe_key)
+        if len(keywords) >= 6:
+            break
+    return keywords
 
 
 def build_analysis_prompt(
