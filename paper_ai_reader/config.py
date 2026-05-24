@@ -16,9 +16,10 @@ from paper_ai_reader.prompts import (
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_TEXT_LIMIT = 50_000
 CONFIG_DIR = Path("config")
-CLI_CONFIG_PATH = CONFIG_DIR / "cli_config.xml"
-GUI_CONFIG_PATH = CONFIG_DIR / "gui_config.xml"
-GUI_STATE_PATH = CONFIG_DIR / ".gui_state.xml"
+SETTINGS_CONFIG_PATH = CONFIG_DIR / "settings.xml"
+SETTINGS_EXAMPLE_PATH = CONFIG_DIR / "settings.example.xml"
+CLI_CONFIG_PATH = SETTINGS_CONFIG_PATH
+GUI_CONFIG_PATH = SETTINGS_CONFIG_PATH
 REQUIRED_CONFIG_KEYS = {
     "notion_token",
     "notion_database_id",
@@ -49,30 +50,13 @@ class Settings:
     ai_model_explicit: bool = False
 
 
-@dataclass
-class AppState:
-    ui_language: str = ""
-    prompt_language: str = ""
-    theme_mode: str = "system"
-    last_config_path: str = ""
-    last_prompt_path: str = ""
-
-    @property
-    def openai_api_key(self) -> str:
-        return ""
-
-    @property
-    def openai_model(self) -> str:
-        return ""
-
-
 def load_settings(
     config_path: str | Path | None = None,
     validate_required: bool = True,
     profile: str = "cli",
 ) -> Settings:
     normalized_profile = normalize_profile(profile)
-    path = Path(config_path) if config_path else default_config_path(normalized_profile)
+    path = resolve_config_path(config_path, normalized_profile)
     config = load_xml_config(path)
 
     prompt_language = normalized_language(
@@ -164,44 +148,10 @@ def save_xml_config(
     tree.write(path, encoding="utf-8", xml_declaration=True)
 
 
-def load_app_state(path: str | Path = GUI_STATE_PATH) -> AppState:
-    xml_path = Path(path)
-    if not xml_path.exists():
-        return AppState()
-    try:
-        values = load_xml_config(xml_path)
-    except ET.ParseError:
-        return AppState()
-    return AppState(
-        ui_language=normalized_language(values.get("ui_language", "")),
-        prompt_language=normalized_language(values.get("prompt_language", "")),
-        theme_mode=values.get("theme_mode", "system") or "system",
-        last_config_path=values.get("last_config_path", ""),
-        last_prompt_path=values.get("last_prompt_path", ""),
-    )
-
-
-def save_app_state(state: AppState, path: str | Path = GUI_STATE_PATH) -> None:
-    xml_path = Path(path)
-    xml_path.parent.mkdir(parents=True, exist_ok=True)
-    root = ET.Element("paper_ai_reader_gui_state")
-    for key, value in {
-        "ui_language": state.ui_language,
-        "prompt_language": state.prompt_language,
-        "theme_mode": state.theme_mode,
-        "last_config_path": state.last_config_path,
-        "last_prompt_path": state.last_prompt_path,
-    }.items():
-        ET.SubElement(root, key).text = value
-    tree = ET.ElementTree(root)
-    ET.indent(tree, space="  ")
-    tree.write(xml_path, encoding="utf-8", xml_declaration=True)
-
-
 def validate_runtime_files(profile: str = "gui", config_path: str | Path | None = None) -> list[str]:
     errors: list[str] = []
     normalized_profile = normalize_profile(profile)
-    config_path = Path(config_path) if config_path else default_config_path(normalized_profile)
+    config_path = resolve_config_path(config_path, normalized_profile)
     if not config_path.exists():
         errors.append(f"Missing config XML: {config_path}")
     else:
@@ -247,7 +197,13 @@ def load_xml_config(config_path: str | Path) -> dict[str, str]:
 
 
 def default_config_path(profile: str) -> Path:
-    return GUI_CONFIG_PATH if normalize_profile(profile) == "gui" else CLI_CONFIG_PATH
+    return SETTINGS_CONFIG_PATH
+
+
+def resolve_config_path(config_path: str | Path | None, profile: str) -> Path:
+    if config_path:
+        return Path(config_path)
+    return SETTINGS_CONFIG_PATH
 
 
 def normalize_profile(profile: str) -> str:

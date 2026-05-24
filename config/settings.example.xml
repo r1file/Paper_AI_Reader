@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<paper_ai_reader_config profile="cli">
+<paper_ai_reader_config profile="shared">
   <notion_token>secret_your_notion_integration_token</notion_token>
   <notion_database_id>your_notion_database_id</notion_database_id>
   <ai_api_key>sk-your_ai_api_key</ai_api_key>

@@ -34,6 +34,8 @@ GUI 包含三个页面：
 - `Prompt`：选择笔记输出语言，并预览 prompt XML。
 - `Setting`：配置 Notion、AI provider、模型、base URL 和文本长度限制。
 
+当连通性检查、模型刷新或阅读流水线正在运行时，GUI 会暂时锁定 Prompt、Setting 和语言设置，避免运行过程中配置漂移。Setting 页面也会在丢弃未保存修改前提示确认。
+
 ## CLI
 
 运行 CLI：
@@ -88,17 +90,13 @@ pip install -r requirements.txt
 
 ## 配置
 
-配置使用 XML。先复制示例：
+配置使用 XML。CLI 和 GUI 共用同一个 settings 文件。先复制示例：
 
 ```bash
-cp config/cli_config.example.xml config/cli_config.xml
-cp config/gui_config.example.xml config/gui_config.xml
+cp config/settings.example.xml config/settings.xml
 ```
 
-然后编辑：
-
-- `config/cli_config.xml`：CLI 配置
-- `config/gui_config.xml`：GUI 配置
+然后编辑 `config/settings.xml`。
 
 重要字段：
 
@@ -162,8 +160,7 @@ Prompt XML 文件位置：
 ├── gui.py
 ├── requirements.txt
 ├── config
-│   ├── cli_config.example.xml
-│   └── gui_config.example.xml
+│   └── settings.example.xml
 ├── prompts
 │   ├── zh.xml
 │   ├── ja.xml
@@ -197,8 +194,8 @@ python -m compileall main.py gui.py paper_ai_reader test_blocks.py test_notion.p
 ```bash
 python - <<'PY'
 from paper_ai_reader.config import validate_runtime_files
-print(validate_runtime_files("cli", "config/cli_config.example.xml"))
-print(validate_runtime_files("gui", "config/gui_config.example.xml"))
+print(validate_runtime_files("cli", "config/settings.example.xml"))
+print(validate_runtime_files("gui", "config/settings.example.xml"))
 PY
 ```
 

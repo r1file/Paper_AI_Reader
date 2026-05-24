@@ -34,6 +34,8 @@ GUI には三つのページがあります：
 - `Prompt`：ノート出力言語の選択と prompt XML のプレビュー。
 - `Setting`：Notion、AI provider、モデル、base URL、本文長上限の設定。
 
+接続確認、モデル更新、読書パイプラインが実行中の場合、GUI は Prompt、Setting、言語設定を一時的にロックし、実行中の設定変更を防ぎます。Setting ページでは、未保存の変更を破棄する前に確認ダイアログを表示します。
+
 ## CLI
 
 CLI パイプラインを実行します：
@@ -88,17 +90,13 @@ pip install -r requirements.txt
 
 ## 設定
 
-設定は XML ベースです。まず example をコピーします：
+設定は XML ベースです。CLI と GUI は同じ settings ファイルを使います。まず example をコピーします：
 
 ```bash
-cp config/cli_config.example.xml config/cli_config.xml
-cp config/gui_config.example.xml config/gui_config.xml
+cp config/settings.example.xml config/settings.xml
 ```
 
-次のファイルを編集します：
-
-- `config/cli_config.xml`：CLI 用設定
-- `config/gui_config.xml`：GUI 用設定
+次に `config/settings.xml` を編集します。
 
 重要な設定項目：
 
@@ -162,8 +160,7 @@ Prompt XML ファイル：
 ├── gui.py
 ├── requirements.txt
 ├── config
-│   ├── cli_config.example.xml
-│   └── gui_config.example.xml
+│   └── settings.example.xml
 ├── prompts
 │   ├── zh.xml
 │   ├── ja.xml
@@ -197,8 +194,8 @@ example XML を検証します：
 ```bash
 python - <<'PY'
 from paper_ai_reader.config import validate_runtime_files
-print(validate_runtime_files("cli", "config/cli_config.example.xml"))
-print(validate_runtime_files("gui", "config/gui_config.example.xml"))
+print(validate_runtime_files("cli", "config/settings.example.xml"))
+print(validate_runtime_files("gui", "config/settings.example.xml"))
 PY
 ```
 

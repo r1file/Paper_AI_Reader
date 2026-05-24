@@ -48,13 +48,16 @@ class NotionPaperService:
         data_sources = database.get("data_sources", [])
         if data_sources:
             self.data_source_id = data_sources[0]["id"]
+            metadata = self.notion.data_sources.retrieve(data_source_id=self.data_source_id)
+        else:
+            metadata = database
 
-        status_property = database.get("properties", {}).get(STATUS_PROPERTY, {})
+        status_property = metadata.get("properties", {}).get(STATUS_PROPERTY, {})
         property_type = status_property.get("type")
         if property_type in {"status", "select"}:
             self.status_property_type = property_type
 
-        keywords_property = database.get("properties", {}).get(KEYWORDS_PROPERTY, {})
+        keywords_property = metadata.get("properties", {}).get(KEYWORDS_PROPERTY, {})
         keywords_property_type = keywords_property.get("type")
         if keywords_property_type in {"multi_select", "select", "rich_text"}:
             self.keywords_property_type = keywords_property_type

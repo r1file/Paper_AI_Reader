@@ -34,6 +34,8 @@ The GUI contains:
 - `Prompt`: choose the note output language and preview prompt XML.
 - `Setting`: configure Notion, AI provider, model, base URL, and text limit.
 
+While a connectivity check, model refresh, or reading pipeline is running, the GUI temporarily locks Prompt, Setting, and language controls to prevent mid-run configuration drift. The Setting page also warns before discarding unsaved changes.
+
 ## CLI
 
 Run the CLI pipeline:
@@ -88,17 +90,13 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Configuration is XML-based. Copy the examples:
+Configuration is XML-based. CLI and GUI read the same settings file. Copy the example:
 
 ```bash
-cp config/cli_config.example.xml config/cli_config.xml
-cp config/gui_config.example.xml config/gui_config.xml
+cp config/settings.example.xml config/settings.xml
 ```
 
-Then edit:
-
-- `config/cli_config.xml` for CLI
-- `config/gui_config.xml` for GUI
+Then edit `config/settings.xml`.
 
 Important config fields:
 
@@ -162,8 +160,7 @@ The AI response is normalized to this shape:
 ├── gui.py
 ├── requirements.txt
 ├── config
-│   ├── cli_config.example.xml
-│   └── gui_config.example.xml
+│   └── settings.example.xml
 ├── prompts
 │   ├── zh.xml
 │   ├── ja.xml
@@ -197,8 +194,8 @@ Validate example XML files:
 ```bash
 python - <<'PY'
 from paper_ai_reader.config import validate_runtime_files
-print(validate_runtime_files("cli", "config/cli_config.example.xml"))
-print(validate_runtime_files("gui", "config/gui_config.example.xml"))
+print(validate_runtime_files("cli", "config/settings.example.xml"))
+print(validate_runtime_files("gui", "config/settings.example.xml"))
 PY
 ```
 

@@ -5,12 +5,9 @@ import sys
 from pathlib import Path
 
 from paper_ai_reader.config import (
-    AppState,
     GUI_CONFIG_PATH,
     Settings,
-    load_app_state,
     load_settings,
-    save_app_state,
     save_settings_xml,
     validate_runtime_files,
 )
@@ -382,6 +379,8 @@ class SettingPage(QWidget):
         self.open_config_external_button = QPushButton()
         self.config_path = GUI_CONFIG_PATH
         self.loading = False
+        self.dirty = False
+        self.last_saved_signature = ""
         self.form = QFormLayout()
         self.form_labels: dict[str, QLabel] = {}
         self._build()
@@ -442,6 +441,15 @@ class SettingPage(QWidget):
         self.api_test_result_button.clicked.connect(self._open_log_if_failed)
         self.refresh_models_button.clicked.connect(lambda: self.models_requested.emit(self.current_settings()))
         self.ai_model_input.setEditable(True)
+        for line_edit in (
+            self.notion_token_input,
+            self.notion_database_id_input,
+            self.ai_api_key_input,
+            self.ai_base_url_input,
+        ):
+            line_edit.textChanged.connect(self._mark_dirty)
+        self.ai_model_input.currentTextChanged.connect(self._mark_dirty)
+        self.paper_text_limit_input.valueChanged.connect(self._mark_dirty)
 
         connection_card = QFrame()
         connection_card.setObjectName("Card")
@@ -481,6 +489,8 @@ class SettingPage(QWidget):
         self.set_available_models([settings.ai_model], settings.ai_model)
         self.paper_text_limit_input.setValue(settings.paper_text_limit)
         self.loading = False
+        self.last_saved_signature = self._settings_signature()
+        self.dirty = False
 
     def retranslate(self, language: str) -> None:
         self.language = language
@@ -540,6 +550,8 @@ class SettingPage(QWidget):
     def _save_to_file(self, show_message: bool) -> bool:
         settings = self.current_settings()
         save_settings_xml(settings, config_path=self.config_path, profile="gui")
+        self.last_saved_signature = self._settings_signature(settings)
+        self.dirty = False
         self.saved.emit(settings)
         if show_message:
             QMessageBox.information(self, tr(self.language, "saved"), tr(self.language, "setting_saved_message"))
@@ -560,6 +572,8 @@ class SettingPage(QWidget):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
     def open_config_file(self) -> None:
+        if not self.confirm_discard_unsaved():
+            return
         path_text, _ = QFileDialog.getOpenFileName(
             self,
             tr(self.language, "open_config"),
@@ -572,12 +586,17 @@ class SettingPage(QWidget):
         self.load_settings(load_settings(config_path=self.config_path, validate_required=False, profile="gui"))
 
     def new_config(self) -> None:
+        if not self.confirm_discard_unsaved():
+            return
+        self.loading = True
         self.notion_token_input.clear()
         self.notion_database_id_input.clear()
         self.ai_api_key_input.clear()
         self.ai_base_url_input.clear()
         self.ai_model_input.setCurrentText("")
         self.paper_text_limit_input.setValue(50_000)
+        self.loading = False
+        self._mark_dirty()
 
     def save_as(self, show_message: bool = False) -> bool:
         path_text, _ = QFileDialog.getSaveFileName(
@@ -590,6 +609,8 @@ class SettingPage(QWidget):
             return False
         self.config_path = Path(path_text)
         save_settings_xml(self.current_settings(), config_path=self.config_path, profile="gui")
+        self.last_saved_signature = self._settings_signature()
+        self.dirty = False
         if show_message:
             QMessageBox.information(self, tr(self.language, "saved"), tr(self.language, "setting_saved_message"))
         return True
@@ -678,6 +699,67 @@ class SettingPage(QWidget):
 
     def save_changes(self) -> bool:
         return self._save_to_file(show_message=False)
+
+    def has_unsaved_changes(self) -> bool:
+        return self.dirty or self._settings_signature() != self.last_saved_signature
+
+    def confirm_discard_unsaved(self) -> bool:
+        result = self.prompt_unsaved_action()
+        if result == QMessageBox.StandardButton.NoButton:
+            return True
+        if result == QMessageBox.StandardButton.Save:
+            return self.save_changes()
+        return result == QMessageBox.StandardButton.Discard
+
+    def prompt_unsaved_action(self) -> QMessageBox.StandardButton:
+        if not self.has_unsaved_changes():
+            return QMessageBox.StandardButton.NoButton
+        return QMessageBox.question(
+            self,
+            tr(self.language, "unsaved_title"),
+            tr(self.language, "unsaved_message"),
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+
+    def set_editing_enabled(self, enabled: bool) -> None:
+        for widget in (
+            self.notion_token_input,
+            self.notion_database_id_input,
+            self.ai_api_key_input,
+            self.ai_base_url_input,
+            self.ai_model_input,
+            self.paper_text_limit_input,
+            self.refresh_models_button,
+            self.test_api_button,
+            self.save_button,
+            self.new_config_button,
+            self.save_as_button,
+            self.apply_button,
+            self.open_config_button,
+            self.open_config_external_button,
+        ):
+            widget.setEnabled(enabled)
+
+    def _mark_dirty(self) -> None:
+        if not self.loading:
+            self.dirty = True
+
+    def _settings_signature(self, settings: Settings | None = None) -> tuple[object, ...]:
+        candidate = settings or self.current_settings()
+        return (
+            candidate.notion_token,
+            candidate.notion_database_id,
+            candidate.ai_api_key,
+            candidate.ai_model,
+            candidate.ai_base_url or "",
+            candidate.paper_text_limit,
+            candidate.ui_language,
+            candidate.theme_mode,
+            candidate.prompt_language,
+        )
 
     def _set_combo_value(self, combo: QComboBox, value: str) -> None:
         index = combo.findData(value)
@@ -838,22 +920,28 @@ class PromptPage(QWidget):
             self.reload_prompt_preview(emit_applied=False)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.prompt_file_path.resolve())))
 
+    def set_editing_enabled(self, enabled: bool) -> None:
+        for widget in (
+            self.prompt_language_button,
+            self.open_prompt_file_button,
+            self.reload_prompt_button,
+            self.open_prompt_external_button,
+        ):
+            widget.setEnabled(enabled)
+
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.app_state = load_app_state()
-        remembered_config = Path(self.app_state.last_config_path) if self.app_state.last_config_path else None
-        self.active_config_path = remembered_config if remembered_config and remembered_config.exists() else GUI_CONFIG_PATH
+        self.active_config_path = GUI_CONFIG_PATH
         self.settings = load_settings(config_path=self.active_config_path, validate_required=False, profile="gui")
-        initial_language = self.app_state.ui_language or system_language()
+        initial_language = self.settings.ui_language or system_language()
         self.language = initial_language if initial_language in SUPPORTED_UI_LANGUAGES else "en"
-        self.settings.prompt_language = self.language
+        if self.settings.prompt_language not in LANGUAGE_CYCLE:
+            self.settings.prompt_language = self.language
         self.settings.prompt = get_prompt("gui", self.settings.prompt_language)
         self.settings.user_prompt_template = get_user_prompt_template("gui", self.settings.prompt_language)
         self.settings.ui_language = self.language
-        if self.app_state.theme_mode in THEME_MODES:
-            self.settings.theme_mode = self.app_state.theme_mode
         self.thread: QThread | None = None
         self.worker: PipelineWorker | None = None
         self.check_thread: QThread | None = None
@@ -896,10 +984,6 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.dashboard)
         self.stack.addWidget(self.prompt_page)
         self.stack.addWidget(self.setting_page)
-        if self.app_state.last_prompt_path:
-            remembered_prompt = Path(self.app_state.last_prompt_path)
-            if remembered_prompt.stem == self.prompt_page.prompt_language:
-                self.prompt_page.load_prompt_file_path(remembered_prompt, emit_applied=False)
         self._build_shell()
 
         self.dashboard.start_requested.connect(self.start_pipeline)
@@ -990,13 +1074,15 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def set_language(self, language: str) -> None:
+        if self.is_background_busy():
+            return
         self.language = language
         self.settings.ui_language = language
         self.prompt_page.set_prompt_language(language, emit_applied=True)
         self.settings.prompt_language = language
         self._build_theme_menu()
         self.retranslate()
-        self.save_current_app_state()
+        self.save_settings_snapshot()
 
     @Slot()
     def cycle_ui_language(self) -> None:
@@ -1022,7 +1108,7 @@ class MainWindow(QMainWindow):
         self._build_theme_menu()
         self.retranslate()
         self._request_theme_update(animated=True)
-        self.save_current_app_state()
+        self.save_settings_snapshot()
 
     @Slot(Settings)
     def update_settings(self, settings: Settings) -> None:
@@ -1032,10 +1118,18 @@ class MainWindow(QMainWindow):
         self.setting_page.settings = settings
         self.prompt_page.settings = settings
         self.active_config_path = self.setting_page.config_path
-        self.save_current_app_state()
+        if not self.setting_page.has_unsaved_changes():
+            self.save_settings_snapshot()
 
     @Slot(int)
     def request_navigation(self, index: int) -> None:
+        if self.is_background_busy() and index != 0:
+            self.dashboard.append_log(tr(self.language, "busy_settings_locked"))
+            self.dashboard_button.setChecked(True)
+            return
+        if self.stack.currentIndex() == 2 and index != 2 and not self.setting_page.confirm_discard_unsaved():
+            self.edit_button.setChecked(True)
+            return
         self.stack.setCurrentIndex(index)
         self.nav_group.button(index).setChecked(True)
 
@@ -1043,6 +1137,22 @@ class MainWindow(QMainWindow):
         self.stack.setEnabled(enabled)
         for button in (self.dashboard_button, self.prompt_button, self.edit_button, self.language_button, self.theme_button):
             button.setEnabled(enabled)
+
+    def set_configuration_locked(self, locked: bool) -> None:
+        self.prompt_button.setEnabled(not locked)
+        self.edit_button.setEnabled(not locked)
+        self.language_button.setEnabled(not locked)
+        self.prompt_page.set_editing_enabled(not locked)
+        self.setting_page.set_editing_enabled(not locked)
+
+    def is_background_busy(self) -> bool:
+        return any(
+            thread is not None and thread.isRunning()
+            for thread in (self.thread, self.check_thread, self.model_thread)
+        )
+
+    def refresh_configuration_lock(self) -> None:
+        self.set_configuration_locked(self.is_background_busy())
 
     @Slot()
     def run_startup_validation(self) -> None:
@@ -1069,19 +1179,23 @@ class MainWindow(QMainWindow):
         self.dashboard.status_text_label.setVisible(self.validation_blink_on)
 
     def save_current_app_state(self) -> None:
-        self.app_state = AppState(
-            ui_language=self.language,
-            prompt_language=self.prompt_page.prompt_language,
-            theme_mode=self.theme_mode,
-            last_config_path=str(self.setting_page.config_path),
-            last_prompt_path=str(self.prompt_page.prompt_file_path),
-        )
-        save_app_state(self.app_state)
+        self.save_settings_snapshot()
+
+    def save_settings_snapshot(self) -> None:
+        settings = self.setting_page.current_settings()
+        settings = self.prompt_page.apply_to_settings(settings)
+        settings.ui_language = self.language
+        settings.theme_mode = self.theme_mode
+        save_settings_xml(settings, config_path=self.setting_page.config_path, profile="gui")
+        self.setting_page.last_saved_signature = self.setting_page._settings_signature(settings)
+        self.setting_page.dirty = False
 
     @Slot()
     def start_pipeline(self) -> None:
         if self.thread:
             self.dashboard.append_log(tr(self.language, "log_pipeline_running"))
+            return
+        if not self.setting_page.save_changes():
             return
         self.settings = self.setting_page.current_settings()
         self.settings = self.prompt_page.apply_to_settings(self.settings)
@@ -1098,6 +1212,7 @@ class MainWindow(QMainWindow):
         self.start_model_list_fetch(settings, prefer_configured=self._has_configured_model_priority(settings))
 
     def _launch_pipeline(self) -> None:
+        self.set_configuration_locked(True)
         self.dashboard.set_running(True)
         self.dashboard.set_status_state("running")
 
@@ -1128,6 +1243,7 @@ class MainWindow(QMainWindow):
             self.dashboard.append_log(tr(self.language, "log_connectivity_running"))
             return
         self.start_after_check = start_after
+        self.set_configuration_locked(True)
         self.setting_page.set_check_running(target)
         self.dashboard.set_status_state("running")
         self.check_thread = QThread()
@@ -1177,6 +1293,7 @@ class MainWindow(QMainWindow):
     def _clear_check_thread(self) -> None:
         self.check_thread = None
         self.check_worker = None
+        self.refresh_configuration_lock()
 
     @Slot(object)
     def start_model_list_fetch(self, settings: Settings, prefer_configured: bool = True) -> None:
@@ -1184,6 +1301,7 @@ class MainWindow(QMainWindow):
             self.dashboard.append_log(tr(self.language, "log_model_running"))
             return
         self.model_fetch_prefer_configured = prefer_configured
+        self.set_configuration_locked(True)
         self.setting_page.set_models_loading()
         self.dashboard.set_status_state("running")
         self.model_thread = QThread()
@@ -1222,6 +1340,7 @@ class MainWindow(QMainWindow):
     def _clear_model_thread(self) -> None:
         self.model_thread = None
         self.model_worker = None
+        self.refresh_configuration_lock()
 
     def _has_configured_model_priority(self, settings: Settings) -> bool:
         if not settings.ai_model:
@@ -1252,6 +1371,7 @@ class MainWindow(QMainWindow):
     def _clear_thread(self) -> None:
         self.thread = None
         self.worker = None
+        self.refresh_configuration_lock()
 
     def changeEvent(self, event: QEvent) -> None:
         if event.type() in {
@@ -1263,7 +1383,30 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
 
     def closeEvent(self, event: QEvent) -> None:
-        self.save_current_app_state()
+        if self.thread and self.thread.isRunning():
+            result = QMessageBox.question(
+                self,
+                tr(self.language, "running_close_title"),
+                tr(self.language, "running_close_message"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if result != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+            if self.worker:
+                self.worker.request_stop()
+
+        unsaved_action = self.setting_page.prompt_unsaved_action()
+        if unsaved_action == QMessageBox.StandardButton.Cancel:
+            event.ignore()
+            return
+        if unsaved_action == QMessageBox.StandardButton.Save and not self.setting_page.save_changes():
+            event.ignore()
+            return
+
+        if unsaved_action != QMessageBox.StandardButton.Discard:
+            self.save_current_app_state()
         for thread in (self.model_thread, self.check_thread, self.thread):
             if thread and thread.isRunning():
                 thread.quit()
