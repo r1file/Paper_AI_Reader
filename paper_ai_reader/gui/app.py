@@ -22,6 +22,7 @@ from paper_ai_reader.prompts import (
     prompt_path,
     read_system_prompt_xml,
 )
+from paper_ai_reader.runtime_paths import resource_root
 
 os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.fonts.warning=false")
 
@@ -51,7 +52,7 @@ def system_language() -> str:
 
 try:
     from PySide6.QtCore import QEvent, QLocale, QObject, Qt, QTimer, QUrl, Signal, Slot
-    from PySide6.QtGui import QAction, QDesktopServices, QFontDatabase, QPalette
+    from PySide6.QtGui import QAction, QDesktopServices, QFontDatabase, QIcon, QPalette
     from PySide6.QtWidgets import (
         QApplication,
         QButtonGroup,
@@ -1750,6 +1751,11 @@ class MainWindow(QMainWindow):
 def main() -> None:
     app = QApplication(sys.argv)
     app.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont))
+    app_icon_path = resource_root() / "assets" / "app-icon.png"
+    if app_icon_path.exists():
+        app.setWindowIcon(QIcon(str(app_icon_path)))
     window = MainWindow()
+    if app_icon_path.exists():
+        window.setWindowIcon(QIcon(str(app_icon_path)))
     window.show()
     sys.exit(app.exec())

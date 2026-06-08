@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP_NAME = "Paper AI Reader"
 MODULE_NAME = "Paper_AI_Reader"
 RELEASE_DIR = ROOT / "release"
+ASSET_DIR = ROOT / "assets"
 EXCLUDE_DIRS = {
     ".git",
     ".mypy_cache",
@@ -52,6 +53,15 @@ def data_arg(source: str, dest: str) -> str:
     return f"{source}{separator}{dest}"
 
 
+def icon_path() -> Path:
+    system = platform.system()
+    if system == "Darwin":
+        return ASSET_DIR / "app-icon.icns"
+    if system == "Windows":
+        return ASSET_DIR / "app-icon.ico"
+    return ASSET_DIR / "app-icon.png"
+
+
 def clean_build_dirs() -> None:
     for path in (ROOT / "build", ROOT / "dist"):
         if path.exists():
@@ -82,6 +92,10 @@ def build_app(version: str) -> Path:
         data_arg("config/settings.example.xml", "config"),
         "--add-data",
         data_arg("prompts", "prompts"),
+        "--add-data",
+        data_arg("assets", "assets"),
+        "--icon",
+        str(icon_path()),
         "gui.py",
     ]
     run(command)
