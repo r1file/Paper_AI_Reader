@@ -13,7 +13,7 @@ from paper_ai_reader.config import (
     validate_runtime_files,
 )
 from paper_ai_reader.backend import PaperAIReaderBackend
-from paper_ai_reader.connectivity import CheckResult
+from paper_ai_reader.connectivity import CheckResult, CheckStatus
 from paper_ai_reader.gui.i18n import SUPPORTED_UI_LANGUAGES, tr
 from paper_ai_reader.prompts import (
     ensure_prompt_xml,
@@ -384,16 +384,18 @@ class SettingPage(QWidget):
         self.test_api_button = QPushButton()
         self.api_test_result_button = QPushButton()
         self.api_check_failed = False
+        self.api_test_state = "waiting"
+        self.api_check_pending: set[str] = set()
         self.save_button = QPushButton()
         self.new_config_button = QPushButton()
         self.save_as_button = QPushButton()
         self.apply_button = QPushButton()
         self.open_config_button = QPushButton()
         self.open_config_external_button = QPushButton()
-        self.config_path = GUI_CONFIG_PATH
+        self.config_path: Path | None = GUI_CONFIG_PATH
         self.loading = False
         self.dirty = False
-        self.last_saved_signature = ""
+        self.last_saved_signature: tuple[object, ...] | None = None
         self.form = QFormLayout()
         self.form_labels: dict[str, QLabel] = {}
         self._build()
@@ -446,10 +448,10 @@ class SettingPage(QWidget):
 
         self.save_button.clicked.connect(self._save)
         self.new_config_button.clicked.connect(self.new_config)
-        self.save_as_button.clicked.connect(self.save_as)
+        self.save_as_button.clicked.connect(lambda: self.save_as(show_message=True))
         self.apply_button.clicked.connect(self._apply)
         self.open_config_button.clicked.connect(self.open_config_file)
-        self.open_config_external_button.clicked.connect(lambda: self._open_file_external(self.config_path))
+        self.open_config_external_button.clicked.connect(self.open_config_external)
         self.test_api_button.clicked.connect(lambda: self.test_requested.emit("all", self.current_settings()))
         self.api_test_result_button.clicked.connect(self._open_log_if_failed)
         self.refresh_models_button.clicked.connect(lambda: self.models_requested.emit(self.current_settings()))
@@ -504,6 +506,7 @@ class SettingPage(QWidget):
         self.loading = False
         self.last_saved_signature = self._settings_signature()
         self.dirty = False
+        self.reset_api_test_result()
 
     def retranslate(self, language: str) -> None:
         self.language = language
@@ -512,8 +515,7 @@ class SettingPage(QWidget):
         self.connection_title.setText(tr(language, "connection_card"))
         self.test_api_button.setText(tr(language, "test_api"))
         self.refresh_models_button.setText(tr(language, "refresh_models"))
-        if not self.api_test_result_button.text():
-            self.api_test_result_button.setText(tr(language, "test_waiting"))
+        self._set_api_test_state(self.api_test_state)
         self.save_button.setText(tr(language, "save"))
         self.new_config_button.setText(tr(language, "new_file"))
         self.save_as_button.setText(tr(language, "save_as"))
@@ -561,13 +563,10 @@ class SettingPage(QWidget):
         self._save_to_file(show_message=True)
 
     def _save_to_file(self, show_message: bool) -> bool:
+        if self.config_path is None:
+            return self.save_as(show_message=show_message)
         settings = self.current_settings()
-        save_settings_xml(settings, config_path=self.config_path, profile="gui")
-        self.last_saved_signature = self._settings_signature(settings)
-        self.dirty = False
-        self.saved.emit(settings)
-        if show_message:
-            QMessageBox.information(self, tr(self.language, "saved"), tr(self.language, "setting_saved_message"))
+        self._write_settings(settings, self.config_path, show_message=show_message)
         return True
 
     def _apply(self) -> None:
@@ -577,12 +576,25 @@ class SettingPage(QWidget):
         self._open_file_external(path)
 
     def _open_file_external(self, path: Path) -> None:
-        if not path.exists():
-            save_settings_xml(self.current_settings(), config_path=path, profile="gui")
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
-            path.write_text("", encoding="utf-8")
+            save_settings_xml(self.current_settings(), config_path=path, profile="gui")
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
+
+    def open_config_external(self) -> None:
+        if self.config_path is None:
+            if not self.save_as(show_message=False):
+                return
+        elif self.has_unsaved_changes():
+            result = self.prompt_unsaved_action()
+            if result == QMessageBox.StandardButton.Cancel:
+                return
+            if result == QMessageBox.StandardButton.Save and not self.save_changes():
+                return
+            if result == QMessageBox.StandardButton.Discard:
+                self.load_settings(load_settings(config_path=self.config_path, validate_required=False, profile="gui"))
+        if self.config_path is not None:
+            self._open_file_external(self.config_path)
 
     def open_config_file(self) -> None:
         if not self.confirm_discard_unsaved():
@@ -590,68 +602,84 @@ class SettingPage(QWidget):
         path_text, _ = QFileDialog.getOpenFileName(
             self,
             tr(self.language, "open_config"),
-            str(self.config_path.parent),
+            str((self.config_path or GUI_CONFIG_PATH).parent),
             "XML (*.xml)",
         )
         if not path_text:
             return
         self.config_path = Path(path_text)
-        self.load_settings(load_settings(config_path=self.config_path, validate_required=False, profile="gui"))
+        settings = load_settings(config_path=self.config_path, validate_required=False, profile="gui")
+        self.load_settings(settings)
 
     def new_config(self) -> None:
         if not self.confirm_discard_unsaved():
             return
-        self.loading = True
-        self.notion_token_input.clear()
-        self.notion_database_id_input.clear()
-        self.ai_api_key_input.clear()
-        self.ai_base_url_input.clear()
-        self.ai_model_input.setCurrentText("")
-        self.paper_text_limit_input.setValue(50_000)
-        self.loading = False
-        self._mark_dirty()
+        self.config_path = None
+        self.load_settings(
+            Settings(
+                notion_token="",
+                notion_database_id="",
+                ai_api_key="",
+                ai_model="",
+                ai_base_url=None,
+                paper_text_limit=50_000,
+                ui_language=self.language,
+                theme_mode=self.settings.theme_mode,
+                prompt_language=self.settings.prompt_language,
+                prompt=self.settings.prompt,
+                user_prompt_template=self.settings.user_prompt_template,
+                profile="gui",
+                ai_model_explicit=False,
+            )
+        )
+        self.last_saved_signature = None
+        self.dirty = True
 
     def save_as(self, show_message: bool = False) -> bool:
         path_text, _ = QFileDialog.getSaveFileName(
             self,
             tr(self.language, "save_as"),
-            str(self.config_path),
+            str(self.config_path or GUI_CONFIG_PATH),
             "XML (*.xml)",
         )
         if not path_text:
             return False
         self.config_path = Path(path_text)
-        save_settings_xml(self.current_settings(), config_path=self.config_path, profile="gui")
-        self.last_saved_signature = self._settings_signature()
+        self._write_settings(self.current_settings(), self.config_path, show_message=show_message)
+        return True
+
+    def _write_settings(self, settings: Settings, path: Path, show_message: bool = False) -> None:
+        save_settings_xml(settings, config_path=path, profile="gui")
+        self.settings = settings
+        self.last_saved_signature = self._settings_signature(settings)
         self.dirty = False
+        self.saved.emit(settings)
         if show_message:
             QMessageBox.information(self, tr(self.language, "saved"), tr(self.language, "setting_saved_message"))
-        return True
 
     def set_check_running(self, target: str) -> None:
         self.api_check_failed = False
+        self.api_check_pending = {"notion", "ai"} if target == "all" else {target}
         self.api_test_result_button.setProperty("clickable", False)
         self.api_test_result_button.setCursor(Qt.CursorShape.ArrowCursor)
-        self.api_test_result_button.setText(tr(self.language, "test_running"))
-        self.api_test_result_button.setProperty("state", "running")
-        self._refresh_check_labels()
+        self._set_api_test_state("running")
 
     def set_check_result(self, target: str, result: CheckResult) -> None:
+        self.api_check_pending.discard(target)
+        if result.ok and self.api_check_failed:
+            return
         self.api_test_result_button.setToolTip(result.detail or result.message)
         if result.ok and not self.api_check_failed:
-            self.api_test_result_button.setText(tr(self.language, "api_normal"))
-            self.api_test_result_button.setProperty("state", "ok")
             self.api_test_result_button.setProperty("clickable", False)
             self.api_test_result_button.setCursor(Qt.CursorShape.ArrowCursor)
-            self._refresh_check_labels()
+            if not self.api_check_pending:
+                self._set_api_test_state("ok")
             return
         if not result.ok:
             self.api_check_failed = True
-            self.api_test_result_button.setText(tr(self.language, "view_log"))
-            self.api_test_result_button.setProperty("state", "error")
             self.api_test_result_button.setProperty("clickable", True)
             self.api_test_result_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._refresh_check_labels()
+            self._set_api_test_state("error")
 
     def _open_log_if_failed(self) -> None:
         if self.api_check_failed:
@@ -702,6 +730,29 @@ class SettingPage(QWidget):
         self.api_test_result_button.style().unpolish(self.api_test_result_button)
         self.api_test_result_button.style().polish(self.api_test_result_button)
 
+    def _set_api_test_state(self, state: str) -> None:
+        self.api_test_state = state if state in {"waiting", "running", "ok", "error"} else "waiting"
+        text_key = {
+            "waiting": "test_waiting",
+            "running": "test_running",
+            "ok": "api_normal",
+            "error": "view_log",
+        }[self.api_test_state]
+        self.api_test_result_button.setText(tr(self.language, text_key))
+        self.api_test_result_button.setProperty(
+            "state",
+            "" if self.api_test_state == "waiting" else self.api_test_state,
+        )
+        self._refresh_check_labels()
+
+    def reset_api_test_result(self) -> None:
+        self.api_check_failed = False
+        self.api_check_pending.clear()
+        self.api_test_result_button.setToolTip("")
+        self.api_test_result_button.setProperty("clickable", False)
+        self.api_test_result_button.setCursor(Qt.CursorShape.ArrowCursor)
+        self._set_api_test_state("waiting")
+
     def save_and_apply(self) -> bool:
         return self.save_changes() and self.apply_changes()
 
@@ -714,7 +765,7 @@ class SettingPage(QWidget):
         return self._save_to_file(show_message=False)
 
     def has_unsaved_changes(self) -> bool:
-        return self.dirty or self._settings_signature() != self.last_saved_signature
+        return self.dirty or self.last_saved_signature is None or self._settings_signature() != self.last_saved_signature
 
     def confirm_discard_unsaved(self) -> bool:
         result = self.prompt_unsaved_action()
@@ -759,6 +810,8 @@ class SettingPage(QWidget):
     def _mark_dirty(self) -> None:
         if not self.loading:
             self.dirty = True
+            if self.api_test_state != "running":
+                self.reset_api_test_result()
 
     def _settings_signature(self, settings: Settings | None = None) -> tuple[object, ...]:
         candidate = settings or self.current_settings()
@@ -1002,6 +1055,7 @@ class MainWindow(QMainWindow):
         self.dashboard.start_requested.connect(self.start_pipeline)
         self.dashboard.stop_requested.connect(self.stop_pipeline)
         self.setting_page.applied.connect(self.update_settings)
+        self.setting_page.saved.connect(self.update_settings)
         self.setting_page.test_requested.connect(self.start_connectivity_check)
         self.setting_page.models_requested.connect(self.start_model_list_fetch)
         self.setting_page.log_requested.connect(self.show_dashboard)
@@ -1117,7 +1171,6 @@ class MainWindow(QMainWindow):
         self.settings.theme_mode = mode
         self.setting_page.settings.theme_mode = mode
         self.prompt_page.settings.theme_mode = mode
-        save_settings_xml(self.settings, profile="gui")
         self._build_theme_menu()
         self.retranslate()
         self._request_theme_update(animated=True)
@@ -1195,6 +1248,8 @@ class MainWindow(QMainWindow):
         self.save_settings_snapshot()
 
     def save_settings_snapshot(self) -> None:
+        if self.setting_page.config_path is None:
+            return
         settings = self.setting_page.current_settings()
         settings = self.prompt_page.apply_to_settings(settings)
         settings.ui_language = self.language
@@ -1290,6 +1345,7 @@ class MainWindow(QMainWindow):
     def _connectivity_failed(self, message: str) -> None:
         self.dashboard.append_log(f"{tr(self.language, 'error')}: {message}")
         self.dashboard.set_status_state("error", message)
+        self.setting_page.set_check_result("all", CheckResult("all", CheckStatus.ERROR, message))
         self.start_after_check = False
 
     @Slot()
