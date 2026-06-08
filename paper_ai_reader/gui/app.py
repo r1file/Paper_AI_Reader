@@ -32,6 +32,17 @@ LANGUAGE_CYCLE = ("zh", "ja", "en")
 LANGUAGE_SHORT_LABELS = {"zh": "🇨🇳 中", "ja": "🇯🇵 日", "en": "🇺🇸 EN"}
 
 
+def app_icon_path() -> Path:
+    if sys.platform == "darwin":
+        filename = "app-icon-macos.png"
+    elif sys.platform.startswith("win"):
+        filename = "app-icon-windows.png"
+    else:
+        filename = "app-icon-linux.png"
+    candidate = resource_root() / "assets" / filename
+    return candidate if candidate.exists() else resource_root() / "assets" / "app-icon.png"
+
+
 def elide_status(text: str, limit: int = 9) -> str:
     clean_text = text.strip()
     return clean_text if len(clean_text) <= limit else f"{clean_text[:limit - 1]}…"
@@ -1751,11 +1762,11 @@ class MainWindow(QMainWindow):
 def main() -> None:
     app = QApplication(sys.argv)
     app.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont))
-    app_icon_path = resource_root() / "assets" / "app-icon.png"
-    if app_icon_path.exists():
-        app.setWindowIcon(QIcon(str(app_icon_path)))
+    icon_path = app_icon_path()
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
     window = MainWindow()
-    if app_icon_path.exists():
-        window.setWindowIcon(QIcon(str(app_icon_path)))
+    if icon_path.exists():
+        window.setWindowIcon(QIcon(str(icon_path)))
     window.show()
     sys.exit(app.exec())

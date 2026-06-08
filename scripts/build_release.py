@@ -56,10 +56,19 @@ def data_arg(source: str, dest: str) -> str:
 def icon_path() -> Path:
     system = platform.system()
     if system == "Darwin":
-        return ASSET_DIR / "app-icon.icns"
+        return ASSET_DIR / "app-icon-macos.icns"
     if system == "Windows":
-        return ASSET_DIR / "app-icon.ico"
-    return ASSET_DIR / "app-icon.png"
+        return ASSET_DIR / "app-icon-windows.ico"
+    return ASSET_DIR / "app-icon-linux.png"
+
+
+def runtime_icon_path() -> Path:
+    system = platform.system()
+    if system == "Darwin":
+        return ASSET_DIR / "app-icon-macos.png"
+    if system == "Windows":
+        return ASSET_DIR / "app-icon-windows.png"
+    return ASSET_DIR / "app-icon-linux.png"
 
 
 def clean_build_dirs() -> None:
@@ -92,12 +101,13 @@ def build_app(version: str) -> Path:
         data_arg("config/settings.example.xml", "config"),
         "--add-data",
         data_arg("prompts", "prompts"),
-        "--add-data",
-        data_arg("assets", "assets"),
         "--icon",
         str(icon_path()),
         "gui.py",
     ]
+    runtime_icons = [runtime_icon_path(), ASSET_DIR / "app-icon.png"]
+    for path in dict.fromkeys(runtime_icons):
+        command[-1:-1] = ["--add-data", data_arg(str(path), "assets")]
     run(command)
 
     tag = platform_tag()
