@@ -563,10 +563,9 @@ class SettingPage(QWidget):
         self._save_to_file(show_message=True)
 
     def _save_to_file(self, show_message: bool) -> bool:
-        if self.config_path is None:
-            return self.save_as(show_message=show_message)
         settings = self.current_settings()
-        self._write_settings(settings, self.config_path, show_message=show_message)
+        self.config_path = GUI_CONFIG_PATH
+        self._write_settings(settings, GUI_CONFIG_PATH, show_message=show_message)
         return True
 
     def _apply(self) -> None:
