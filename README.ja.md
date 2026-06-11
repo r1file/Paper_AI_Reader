@@ -119,6 +119,7 @@ Prompt XML ファイル：
 - `prompts/en.xml`
 
 各 prompt XML には `system_prompt` と `user_prompt_template` が含まれます。テンプレートでは `{title}`、`{website}`、`{paper_text}` を使用できます。
+既定の `system_prompt` には LLM、ROS2、HRI などの研究方向例が含まれています。継続利用する前に、自分の研究分野に合わせて prompt XML を編集してください。
 
 ## 処理フロー
 
@@ -176,7 +177,14 @@ Prompt XML ファイル：
 │   ├── prompts.py
 │   └── gui
 │       ├── app.py
+│       ├── style.qss
 │       └── i18n.py
+├── tests
+│   ├── test_analyzer.py
+│   ├── test_config.py
+│   ├── test_connectivity.py
+│   ├── test_fetcher.py
+│   └── test_notion_service.py
 ├── test_notion.py
 └── test_blocks.py
 ```
@@ -187,6 +195,13 @@ Prompt XML ファイル：
 
 ```bash
 python -m compileall main.py gui.py paper_ai_reader test_blocks.py test_notion.py
+```
+
+自動テストを実行します：
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest
 ```
 
 example XML を検証します：
@@ -206,7 +221,7 @@ PY
 - 実行用 XML には secret が含まれるため、コミットしないでください。
 - 現在の実行ロジックは `.env` を読みません。
 - `test_notion.py` と `test_blocks.py` は手動デバッグ用で、Notion API を直接呼び出します。
-- PDF 抽出には `pypdf` を使用しています。複雑なレイアウトでは完全に抽出できない場合があります。
+- PDF 抽出には `pypdf` を使用しています。複雑な多段組み論文、数式、図表キャプションはきれいに抽出できない場合があります。難しい論文では、読み取り可能な Web ページを使う、本文を手動で整える、または学術 PDF/OCR 向けツールの導入を検討してください。
 
 ## Release ビルド
 

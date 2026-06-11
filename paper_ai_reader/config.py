@@ -16,10 +16,8 @@ from paper_ai_reader.runtime_paths import config_dir, ensure_runtime_files
 
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_TEXT_LIMIT = 50_000
-ensure_runtime_files()
-CONFIG_DIR = config_dir()
-SETTINGS_CONFIG_PATH = CONFIG_DIR / "settings.xml"
-SETTINGS_EXAMPLE_PATH = CONFIG_DIR / "settings.example.xml"
+SETTINGS_CONFIG_PATH = config_dir() / "settings.xml"
+SETTINGS_EXAMPLE_PATH = config_dir() / "settings.example.xml"
 CLI_CONFIG_PATH = SETTINGS_CONFIG_PATH
 GUI_CONFIG_PATH = SETTINGS_CONFIG_PATH
 REQUIRED_CONFIG_KEYS = {
@@ -57,6 +55,7 @@ def load_settings(
     validate_required: bool = True,
     profile: str = "cli",
 ) -> Settings:
+    ensure_runtime_files()
     normalized_profile = normalize_profile(profile)
     path = resolve_config_path(config_path, normalized_profile)
     config = load_xml_config(path)
@@ -68,8 +67,8 @@ def load_settings(
         str(config.get("ui_language") or prompt_language)
     )
     theme_mode = str(config.get("theme_mode") or "system")
-    prompt = get_prompt(normalized_profile, prompt_language)
-    user_prompt_template = get_user_prompt_template(normalized_profile, prompt_language)
+    prompt = get_prompt(prompt_language)
+    user_prompt_template = get_user_prompt_template(prompt_language)
 
     notion_token = str(config.get("notion_token") or "")
     notion_database_id = str(config.get("notion_database_id") or "")
@@ -126,6 +125,7 @@ def save_xml_config(
     config_path: str | Path | None = None,
     profile: str | None = None,
 ) -> None:
+    ensure_runtime_files()
     normalized_profile = normalize_profile(profile or settings.profile)
     path = Path(config_path) if config_path else default_config_path(normalized_profile)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,6 +151,7 @@ def save_xml_config(
 
 
 def validate_runtime_files(profile: str = "gui", config_path: str | Path | None = None) -> list[str]:
+    ensure_runtime_files()
     errors: list[str] = []
     normalized_profile = normalize_profile(profile)
     config_path = resolve_config_path(config_path, normalized_profile)

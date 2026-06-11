@@ -101,6 +101,8 @@ def build_app(version: str) -> Path:
         data_arg("config/settings.example.xml", "config"),
         "--add-data",
         data_arg("prompts", "prompts"),
+        "--add-data",
+        data_arg("paper_ai_reader/gui/style.qss", "paper_ai_reader/gui"),
         "--icon",
         str(icon_path()),
         "gui.py",

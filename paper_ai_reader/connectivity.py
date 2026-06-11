@@ -10,7 +10,20 @@ from openai import APIConnectionError, AuthenticationError, OpenAI
 from paper_ai_reader.config import Settings
 
 
-PREFERRED_MODEL_KEYWORDS = ("chat", "turbo", "mini", "instruct")
+OPENAI_PREFERRED_MODELS = (
+    "gpt-4.1-mini",
+    "gpt-4o-mini",
+    "gpt-4.1",
+    "gpt-4o",
+)
+GENERIC_PREFERRED_MODELS = (
+    "deepseek-chat",
+    "deepseek-reasoner",
+    "qwen-plus",
+    "qwen-turbo",
+    "glm-4",
+    "claude-3-5-sonnet",
+)
 
 CONNECTIVITY_TEXT = {
     "zh": {
@@ -190,9 +203,12 @@ def choose_default_model(models: list[str], base_url: str | None = None) -> str:
         for preferred in ("deepseek-chat", "deepseek-reasoner"):
             if preferred in clean_models:
                 return preferred
+    if not lowered_base_url:
+        for preferred in OPENAI_PREFERRED_MODELS:
+            if preferred in clean_models:
+                return preferred
 
-    for keyword in PREFERRED_MODEL_KEYWORDS:
-        for model in clean_models:
-            if keyword in model.lower():
-                return model
+    for preferred in GENERIC_PREFERRED_MODELS:
+        if preferred in clean_models:
+            return preferred
     return clean_models[0]
