@@ -119,6 +119,7 @@ Prompt XML files live in:
 - `prompts/en.xml`
 
 Each prompt XML contains both `system_prompt` and `user_prompt_template`. The template supports `{title}`, `{website}`, and `{paper_text}`.
+The default `system_prompt` includes example research directions such as LLM, ROS2, and HRI. Edit the prompt XML for your own field before regular use.
 
 ## Pipeline
 
@@ -176,7 +177,14 @@ The AI response is normalized to this shape:
 │   ├── prompts.py
 │   └── gui
 │       ├── app.py
+│       ├── style.qss
 │       └── i18n.py
+├── tests
+│   ├── test_analyzer.py
+│   ├── test_config.py
+│   ├── test_connectivity.py
+│   ├── test_fetcher.py
+│   └── test_notion_service.py
 ├── test_notion.py
 └── test_blocks.py
 ```
@@ -187,6 +195,13 @@ Compile-check the project without calling external APIs:
 
 ```bash
 python -m compileall main.py gui.py paper_ai_reader test_blocks.py test_notion.py
+```
+
+Run automated tests:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest
 ```
 
 Validate example XML files:
@@ -224,4 +239,4 @@ config directory on first launch. Source runs use `config/settings.xml` and
 - Runtime XML files can contain secrets and should not be committed.
 - `.env` is not used by the current runtime.
 - `test_notion.py` and `test_blocks.py` are manual debugging scripts and call the Notion API directly.
-- PDF extraction uses `pypdf`; complex PDF layouts may not extract perfectly.
+- PDF extraction uses `pypdf`; complex multi-column papers, formulas, and figure captions may not extract cleanly. For difficult papers, provide a readable webpage, curate the text manually, or integrate a dedicated academic PDF/OCR tool.

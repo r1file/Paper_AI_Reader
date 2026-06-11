@@ -1,0 +1,250 @@
+QMainWindow, QWidget {
+    background: %(window)s;
+    color: %(text)s;
+    font-size: 14px;
+}
+QFrame#Sidebar {
+    background: %(sidebar)s;
+    border: none;
+}
+QLabel#BrandTitle {
+    color: %(text)s;
+    font-size: 22px;
+    font-weight: 760;
+}
+QLabel#BrandSubtitle {
+    color: %(muted)s;
+    font-size: 13px;
+    line-height: 1.4;
+}
+QLabel {
+    background: transparent;
+}
+QPushButton#NavButton, QPushButton#BottomMenuButton {
+    text-align: left;
+    background: transparent;
+    color: %(text)s;
+    border-radius: 8px;
+    padding: 9px 10px;
+    font-weight: 600;
+}
+QPushButton#NavButton:hover, QPushButton#BottomMenuButton:hover {
+    background: %(nav_hover)s;
+}
+QPushButton#NavButton:checked {
+    background: %(nav_checked)s;
+    color: %(text)s;
+}
+QMenu {
+    background: %(surface)s;
+    color: %(text)s;
+    border: 1px solid %(border)s;
+    border-radius: 10px;
+    padding: 6px;
+}
+QMenu::item {
+    border-radius: 7px;
+    padding: 8px 28px 8px 14px;
+}
+QMenu::item:selected {
+    background: %(nav_hover)s;
+}
+QFrame#FloatingHeader {
+    border: 1px solid %(border)s;
+    border-radius: 18px;
+    background: %(surface)s;
+}
+QFrame#Card {
+    border: 1px solid %(border)s;
+    border-radius: 14px;
+    background: %(surface)s;
+}
+QFrame#FloatingBar {
+    border: 1px solid %(border)s;
+    border-radius: 18px;
+    background: %(surface)s;
+}
+QLabel#PageTitle {
+    color: %(text)s;
+    font-size: 27px;
+    font-weight: 760;
+}
+QLabel#PageSubtitle, QLabel#CardSubtitle, QLabel#HintText {
+    color: %(muted)s;
+    font-size: 13px;
+}
+QLabel#ProgressSummary {
+    color: %(muted)s;
+    font-size: 12px;
+}
+QLabel#CardTitle {
+    color: %(text)s;
+    font-size: 16px;
+    font-weight: 700;
+}
+QPushButton {
+    border: none;
+    border-radius: 8px;
+    padding: 9px 14px;
+    background: %(button)s;
+    color: %(button_text)s;
+    font-weight: 650;
+}
+QPushButton:hover {
+    background: %(button_hover)s;
+}
+QPushButton:disabled {
+    background: %(surface_3)s;
+    color: %(muted)s;
+}
+QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QComboBox {
+    border: 1px solid %(border)s;
+    border-radius: 9px;
+    padding: 9px;
+    background: %(surface_2)s;
+    color: %(text)s;
+    selection-background-color: %(selection)s;
+}
+QTextEdit {
+    padding: 14px;
+}
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus {
+    border: 1px solid %(border_focus)s;
+    background: %(surface)s;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 28px;
+}
+QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 8px 2px 8px 2px;
+}
+QScrollBar::handle:vertical {
+    background: %(scroll_handle)s;
+    min-height: 44px;
+    border-radius: 5px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: transparent;
+    border: none;
+    height: 0px;
+}
+QScrollBar:horizontal {
+    background: transparent;
+    height: 10px;
+    margin: 2px 8px 2px 8px;
+}
+QScrollBar::handle:horizontal {
+    background: %(scroll_handle)s;
+    min-width: 44px;
+    border-radius: 5px;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: transparent;
+    border: none;
+    width: 0px;
+}
+QSpinBox::up-button, QSpinBox::down-button {
+    border: none;
+    background: transparent;
+    width: 22px;
+    margin: 2px;
+    border-radius: 6px;
+}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+    background: %(nav_hover)s;
+}
+QSpinBox::up-arrow {
+    image: none;
+    width: 0px;
+    height: 0px;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 5px solid %(muted)s;
+}
+QSpinBox::down-arrow {
+    image: none;
+    width: 0px;
+    height: 0px;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid %(muted)s;
+}
+QScrollArea {
+    border: none;
+    background: %(window)s;
+}
+QScrollArea > QWidget > QWidget {
+    background: %(window)s;
+}
+QPlainTextEdit, QTextEdit {
+    font-family: "Menlo", "Monaco", "Consolas", monospace;
+    font-size: 12px;
+}
+QFrame#StatusDot {
+    border: none;
+}
+QProgressBar#PipelineProgress {
+    border: 1px solid %(border)s;
+    border-radius: 6px;
+    background: %(surface_2)s;
+    height: 10px;
+}
+QProgressBar#PipelineProgress::chunk {
+    border-radius: 5px;
+    background: %(selection)s;
+}
+QFrame#StatusCapsule {
+    border: 1px solid %(border)s;
+    border-radius: 13px;
+    background: %(surface_2)s;
+}
+QLabel#StatusTextPill {
+    color: %(muted)s;
+    padding: 0px;
+    border: none;
+    background: transparent;
+    font-weight: 650;
+}
+QLabel#StatusTextPill[state="running"] {
+    color: #d97706;
+    background: transparent;
+}
+QLabel#StatusTextPill[state="done"], QLabel#StatusTextPill[state="idle"] {
+    color: #16a34a;
+    background: transparent;
+}
+QLabel#StatusTextPill[state="error"] {
+    color: #dc2626;
+    background: transparent;
+}
+QPushButton#CheckResultButton {
+    color: %(muted)s;
+    padding: 0px 10px;
+    border: 1px solid %(border)s;
+    border-radius: 13px;
+    background: %(surface_2)s;
+    text-align: center;
+}
+QPushButton#CheckResultButton:hover {
+    background: %(nav_hover)s;
+}
+QPushButton#CheckResultButton[clickable="false"]:hover {
+    background: %(surface_2)s;
+}
+QPushButton#CheckResultButton[state="running"] {
+    color: #d97706;
+    background: rgba(217, 119, 6, 0.10);
+}
+QPushButton#CheckResultButton[state="ok"] {
+    color: #16a34a;
+    background: rgba(22, 163, 74, 0.10);
+}
+QPushButton#CheckResultButton[state="error"] {
+    color: #dc2626;
+    background: rgba(220, 38, 38, 0.10);
+}

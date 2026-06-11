@@ -119,6 +119,7 @@ Prompt XML 文件位置：
 - `prompts/en.xml`
 
 每个 prompt XML 都包含 `system_prompt` 和 `user_prompt_template`。模板支持 `{title}`、`{website}`、`{paper_text}`。
+默认 `system_prompt` 包含示例研究方向（如 LLM、ROS2、HRI）。请根据自己的研究领域直接编辑对应语言的 prompt XML。
 
 ## 处理流程
 
@@ -176,7 +177,14 @@ Prompt XML 文件位置：
 │   ├── prompts.py
 │   └── gui
 │       ├── app.py
+│       ├── style.qss
 │       └── i18n.py
+├── tests
+│   ├── test_analyzer.py
+│   ├── test_config.py
+│   ├── test_connectivity.py
+│   ├── test_fetcher.py
+│   └── test_notion_service.py
 ├── test_notion.py
 └── test_blocks.py
 ```
@@ -187,6 +195,13 @@ Prompt XML 文件位置：
 
 ```bash
 python -m compileall main.py gui.py paper_ai_reader test_blocks.py test_notion.py
+```
+
+运行自动化测试：
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest
 ```
 
 验证示例 XML：
@@ -223,4 +238,4 @@ macOS、Linux、Windows 三端应用，可以运行 `.github/workflows/release.y
 - 运行用 XML 可能包含密钥，不要提交。
 - 当前运行逻辑不读取 `.env`。
 - `test_notion.py` 和 `test_blocks.py` 是手动调试脚本，会直接调用 Notion API。
-- PDF 文本抽取使用 `pypdf`，复杂版式可能抽取不完整。
+- PDF 文本抽取使用 `pypdf`，复杂多栏论文、公式、图表标题可能抽取不完整；遇到质量问题时建议提供可读网页、手动整理正文，或接入更专业的学术 PDF/OCR 工具。

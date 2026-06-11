@@ -22,6 +22,7 @@ from paper_ai_reader.prompts import (
     prompt_path,
     read_system_prompt_xml,
 )
+from paper_ai_reader.pipeline import PipelineProgress
 from paper_ai_reader.runtime_paths import resource_root
 
 os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.fonts.warning=false")
@@ -77,6 +78,7 @@ try:
         QMainWindow,
         QMenu,
         QMessageBox,
+        QProgressBar,
         QPushButton,
         QPlainTextEdit,
         QScrollArea,
@@ -93,7 +95,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - only reached without GU
 
 class PipelineWorker(QObject):
     log = Signal(str)
-    status = Signal(str)
+    status = Signal(object)
     conversation = Signal(str, str)
     finished = Signal()
     failed = Signal(str)
@@ -196,6 +198,8 @@ class DashboardPage(QWidget):
         self.log_view = QPlainTextEdit()
         self.conversation_view = QPlainTextEdit()
         self.hint_label = QLabel()
+        self.progress_bar = QProgressBar()
+        self.progress_label = QLabel()
         self._build()
         self.retranslate(language)
 
@@ -217,8 +221,8 @@ class DashboardPage(QWidget):
         hero_layout.addLayout(hero_text, 1)
 
         self.status_capsule.setObjectName("StatusCapsule")
-        self.status_capsule.setFixedSize(136, 44)
-        self.status_capsule.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.status_capsule.setMinimumSize(136, 44)
+        self.status_capsule.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         capsule_layout = QHBoxLayout(self.status_capsule)
         capsule_layout.setContentsMargins(12, 0, 12, 0)
         capsule_layout.setSpacing(8)
@@ -228,7 +232,8 @@ class DashboardPage(QWidget):
         self.status_dot.setFrameShape(QFrame.Shape.NoFrame)
         self.status_dot.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.status_text_label.setObjectName("StatusTextPill")
-        self.status_text_label.setFixedSize(86, 26)
+        self.status_text_label.setMinimumSize(86, 26)
+        self.status_text_label.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.status_text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         capsule_layout.addWidget(self.status_dot)
         capsule_layout.addWidget(self.status_text_label, 1)
@@ -248,6 +253,18 @@ class DashboardPage(QWidget):
         self.hint_label.setWordWrap(True)
         self.hint_label.setObjectName("HintText")
         layout.addWidget(self.hint_label)
+
+        progress_layout = QHBoxLayout()
+        progress_layout.setSpacing(12)
+        self.progress_bar.setObjectName("PipelineProgress")
+        self.progress_bar.setRange(0, 1)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_label.setObjectName("ProgressSummary")
+        self.progress_label.setMinimumWidth(260)
+        progress_layout.addWidget(self.progress_bar, 1)
+        progress_layout.addWidget(self.progress_label)
+        layout.addLayout(progress_layout)
 
         panes = QHBoxLayout()
         panes.setSpacing(18)
@@ -296,16 +313,49 @@ class DashboardPage(QWidget):
         self.conversation_title.setText(tr(language, "conversation"))
         self.conversation_subtitle.setText(tr(language, "conversation_subtitle"))
         self.hint_label.setText(tr(language, "conversation_hint"))
+        self.reset_progress()
         self._refresh_status_text()
 
     def set_running(self, running: bool) -> None:
         self.start_button.setEnabled(not running)
         self.stop_button.setEnabled(running)
         if running:
+            self.reset_progress()
             self.set_status_state("running", tr(self.language, "status_running"))
 
-    def set_status(self, status: str) -> None:
-        self.status_dot.setToolTip(status)
+    def set_status(self, status: object) -> None:
+        if isinstance(status, PipelineProgress):
+            self.set_progress(status)
+            return
+        self.status_dot.setToolTip(str(status))
+
+    def set_progress(self, progress: PipelineProgress) -> None:
+        self.status_dot.setToolTip(progress.message)
+        self.progress_bar.setMaximum(max(progress.total, 1))
+        self.progress_bar.setValue(min(progress.current, max(progress.total, 1)))
+        self.progress_bar.setFormat(f"{progress.current}/{progress.total}" if progress.total else "")
+        self.progress_label.setText(
+            tr(self.language, "progress_summary").format(
+                current=progress.current,
+                total=progress.total,
+                processed=progress.processed,
+                skipped=progress.skipped,
+                failed=progress.failed,
+            )
+        )
+
+    def reset_progress(self) -> None:
+        self.progress_bar.setRange(0, 1)
+        self.progress_bar.setValue(0)
+        self.progress_label.setText(
+            tr(self.language, "progress_summary").format(
+                current=0,
+                total=0,
+                processed=0,
+                skipped=0,
+                failed=0,
+            )
+        )
 
     def set_status_state(self, state: str, text: str | None = None) -> None:
         self.status_state = state
@@ -840,7 +890,7 @@ class PromptPage(QWidget):
         self.settings = settings
         self.language = language
         self.prompt_language = settings.prompt_language
-        self.prompt_file_path = prompt_path("gui", self.prompt_language)
+        self.prompt_file_path = prompt_path(self.prompt_language)
         self.title_label = QLabel()
         self.subtitle_label = QLabel()
         self.prompt_file_hint_label = QLabel()
@@ -918,7 +968,7 @@ class PromptPage(QWidget):
     def load_settings(self, settings: Settings) -> None:
         self.settings = settings
         self.prompt_language = settings.prompt_language
-        self.prompt_file_path = prompt_path("gui", self.prompt_language)
+        self.prompt_file_path = prompt_path(self.prompt_language)
         self.reload_prompt_preview(emit_applied=False)
 
     def retranslate(self, language: str) -> None:
@@ -936,7 +986,7 @@ class PromptPage(QWidget):
         settings.profile = "gui"
         settings.prompt_language = self.prompt_language
         settings.prompt = self.prompt_preview.toPlainText().strip()
-        settings.user_prompt_template = get_user_prompt_template("gui", settings.prompt_language)
+        settings.user_prompt_template = get_user_prompt_template(settings.prompt_language)
         return settings
 
     def cycle_prompt_language(self) -> None:
@@ -944,7 +994,7 @@ class PromptPage(QWidget):
 
     def set_prompt_language(self, language: str, emit_applied: bool = True) -> None:
         self.prompt_language = language if language in LANGUAGE_CYCLE else "zh"
-        self.prompt_file_path = prompt_path("gui", self.prompt_language)
+        self.prompt_file_path = prompt_path(self.prompt_language)
         self.prompt_language_button.setText(LANGUAGE_SHORT_LABELS[self.prompt_language])
         self.reload_prompt_preview(emit_applied=emit_applied)
 
@@ -952,7 +1002,7 @@ class PromptPage(QWidget):
         path_text, _ = QFileDialog.getOpenFileName(
             self,
             tr(self.language, "open_prompt"),
-            str(prompt_path("gui", self.prompt_language).parent),
+            str(prompt_path(self.prompt_language).parent),
             "XML (*.xml)",
         )
         if not path_text:
@@ -972,7 +1022,7 @@ class PromptPage(QWidget):
         if self.prompt_file_path.exists():
             content = read_system_prompt_xml(self.prompt_file_path)
         else:
-            self.prompt_file_path = ensure_prompt_xml("gui", self.prompt_language)
+            self.prompt_file_path = ensure_prompt_xml(self.prompt_language)
             content = read_system_prompt_xml(self.prompt_file_path)
         self.prompt_preview.setPlainText(content)
         self.prompt_path_input.setText(str(self.prompt_file_path))
@@ -981,7 +1031,7 @@ class PromptPage(QWidget):
 
     def open_file_external(self) -> None:
         if not self.prompt_file_path.exists():
-            self.prompt_file_path = ensure_prompt_xml("gui", self.prompt_language)
+            self.prompt_file_path = ensure_prompt_xml(self.prompt_language)
             self.reload_prompt_preview(emit_applied=False)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.prompt_file_path.resolve())))
 
@@ -1004,8 +1054,8 @@ class MainWindow(QMainWindow):
         self.language = initial_language if initial_language in SUPPORTED_UI_LANGUAGES else "en"
         if self.settings.prompt_language not in LANGUAGE_CYCLE:
             self.settings.prompt_language = self.language
-        self.settings.prompt = get_prompt("gui", self.settings.prompt_language)
-        self.settings.user_prompt_template = get_user_prompt_template("gui", self.settings.prompt_language)
+        self.settings.prompt = get_prompt(self.settings.prompt_language)
+        self.settings.user_prompt_template = get_user_prompt_template(self.settings.prompt_language)
         self.settings.ui_language = self.language
         self.thread: threading.Thread | None = None
         self.worker: PipelineWorker | None = None
@@ -1469,247 +1519,8 @@ class MainWindow(QMainWindow):
         self._set_style_colors(self.current_colors)
 
     def _set_style_colors(self, colors: dict[str, str]) -> None:
-        self.setStyleSheet(
-            """
-            QMainWindow, QWidget {
-                background: %(window)s;
-                color: %(text)s;
-                font-size: 14px;
-            }
-            QFrame#Sidebar {
-                background: %(sidebar)s;
-                border: none;
-            }
-            QLabel#BrandTitle {
-                color: %(text)s;
-                font-size: 22px;
-                font-weight: 760;
-            }
-            QLabel#BrandSubtitle {
-                color: %(muted)s;
-                font-size: 13px;
-                line-height: 1.4;
-            }
-            QLabel {
-                background: transparent;
-            }
-            QPushButton#NavButton, QPushButton#BottomMenuButton {
-                text-align: left;
-                background: transparent;
-                color: %(text)s;
-                border-radius: 8px;
-                padding: 9px 10px;
-                font-weight: 600;
-            }
-            QPushButton#NavButton:hover, QPushButton#BottomMenuButton:hover {
-                background: %(nav_hover)s;
-            }
-            QPushButton#NavButton:checked {
-                background: %(nav_checked)s;
-                color: %(text)s;
-            }
-            QMenu {
-                background: %(surface)s;
-                color: %(text)s;
-                border: 1px solid %(border)s;
-                border-radius: 10px;
-                padding: 6px;
-            }
-            QMenu::item {
-                border-radius: 7px;
-                padding: 8px 28px 8px 14px;
-            }
-            QMenu::item:selected {
-                background: %(nav_hover)s;
-            }
-            QFrame#FloatingHeader {
-                border: 1px solid %(border)s;
-                border-radius: 18px;
-                background: %(surface)s;
-            }
-            QFrame#Card {
-                border: 1px solid %(border)s;
-                border-radius: 14px;
-                background: %(surface)s;
-            }
-            QFrame#FloatingBar {
-                border: 1px solid %(border)s;
-                border-radius: 18px;
-                background: %(surface)s;
-            }
-            QLabel#PageTitle {
-                color: %(text)s;
-                font-size: 27px;
-                font-weight: 760;
-            }
-            QLabel#PageSubtitle, QLabel#CardSubtitle, QLabel#HintText {
-                color: %(muted)s;
-                font-size: 13px;
-            }
-            QLabel#CardTitle {
-                color: %(text)s;
-                font-size: 16px;
-                font-weight: 700;
-            }
-            QPushButton {
-                border: none;
-                border-radius: 8px;
-                padding: 9px 14px;
-                background: %(button)s;
-                color: %(button_text)s;
-                font-weight: 650;
-            }
-            QPushButton:hover {
-                background: %(button_hover)s;
-            }
-            QPushButton:disabled {
-                background: %(surface_3)s;
-                color: %(muted)s;
-            }
-            QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QComboBox {
-                border: 1px solid %(border)s;
-                border-radius: 9px;
-                padding: 9px;
-                background: %(surface_2)s;
-                color: %(text)s;
-                selection-background-color: %(selection)s;
-            }
-            QTextEdit {
-                padding: 14px;
-            }
-            QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus {
-                border: 1px solid %(border_focus)s;
-                background: %(surface)s;
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 28px;
-            }
-            QScrollBar:vertical {
-                background: transparent;
-                width: 10px;
-                margin: 8px 2px 8px 2px;
-            }
-            QScrollBar::handle:vertical {
-                background: %(scroll_handle)s;
-                min-height: 44px;
-                border-radius: 5px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-                background: transparent;
-                border: none;
-                height: 0px;
-            }
-            QScrollBar:horizontal {
-                background: transparent;
-                height: 10px;
-                margin: 2px 8px 2px 8px;
-            }
-            QScrollBar::handle:horizontal {
-                background: %(scroll_handle)s;
-                min-width: 44px;
-                border-radius: 5px;
-            }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
-            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
-                background: transparent;
-                border: none;
-                width: 0px;
-            }
-            QSpinBox::up-button, QSpinBox::down-button {
-                border: none;
-                background: transparent;
-                width: 22px;
-                margin: 2px;
-                border-radius: 6px;
-            }
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover {
-                background: %(nav_hover)s;
-            }
-            QSpinBox::up-arrow {
-                image: none;
-                width: 0px;
-                height: 0px;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-bottom: 5px solid %(muted)s;
-            }
-            QSpinBox::down-arrow {
-                image: none;
-                width: 0px;
-                height: 0px;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 5px solid %(muted)s;
-            }
-            QScrollArea {
-                border: none;
-                background: %(window)s;
-            }
-            QScrollArea > QWidget > QWidget {
-                background: %(window)s;
-            }
-            QPlainTextEdit, QTextEdit {
-                font-family: "Menlo", "Monaco", "Consolas", monospace;
-                font-size: 12px;
-            }
-            QFrame#StatusDot {
-                border: none;
-            }
-            QFrame#StatusCapsule {
-                border: 1px solid %(border)s;
-                border-radius: 13px;
-                background: %(surface_2)s;
-            }
-            QLabel#StatusTextPill {
-                color: %(muted)s;
-                padding: 0px;
-                border: none;
-                background: transparent;
-                font-weight: 650;
-            }
-            QLabel#StatusTextPill[state="running"] {
-                color: #d97706;
-                background: transparent;
-            }
-            QLabel#StatusTextPill[state="done"], QLabel#StatusTextPill[state="idle"] {
-                color: #16a34a;
-                background: transparent;
-            }
-            QLabel#StatusTextPill[state="error"] {
-                color: #dc2626;
-                background: transparent;
-            }
-            QPushButton#CheckResultButton {
-                color: %(muted)s;
-                padding: 0px 10px;
-                border: 1px solid %(border)s;
-                border-radius: 13px;
-                background: %(surface_2)s;
-                text-align: center;
-            }
-            QPushButton#CheckResultButton:hover {
-                background: %(nav_hover)s;
-            }
-            QPushButton#CheckResultButton[clickable="false"]:hover {
-                background: %(surface_2)s;
-            }
-            QPushButton#CheckResultButton[state="running"] {
-                color: #d97706;
-                background: rgba(217, 119, 6, 0.10);
-            }
-            QPushButton#CheckResultButton[state="ok"] {
-                color: #16a34a;
-                background: rgba(22, 163, 74, 0.10);
-            }
-            QPushButton#CheckResultButton[state="error"] {
-                color: #dc2626;
-                background: rgba(220, 38, 38, 0.10);
-            }
-            """
-            % colors
-        )
+        style_template = (Path(__file__).with_name("style.qss")).read_text(encoding="utf-8")
+        self.setStyleSheet(style_template % colors)
 
     def _request_theme_update(self, animated: bool) -> None:
         target = self._palette_for_dark(self._effective_dark())

@@ -90,48 +90,46 @@ class PaperAnalyzer:
         prompt = build_analysis_prompt(title, website, paper_text, self.user_prompt_template)
         self._emit_conversation("system", self.system_prompt)
         self._emit_conversation("user", prompt)
-        try:
-            response = self.client.responses.create(
-                model=self.model,
-                input=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": prompt},
-                ],
-                text={
-                    "format": {
-                        "type": "json_schema",
-                        "name": "paper_ai_reader_analysis",
-                        "schema": ANALYSIS_SCHEMA,
-                        "strict": True,
-                    }
-                },
-            )
-            self._emit_conversation("assistant", response.output_text)
-            return normalize_analysis(parse_analysis_json(response.output_text))
-        except Exception as responses_error:
+        strategies: list[tuple[str, Callable[[], dict[str, Any]]]] = [
+            ("Responses", lambda: self._analyze_with_responses(prompt)),
+            ("Chat JSON schema", lambda: self._analyze_with_chat_completions(prompt)),
+            ("Chat JSON object", lambda: self._analyze_with_json_object(prompt)),
+            ("Plain chat JSON", lambda: self._analyze_with_plain_chat(prompt)),
+        ]
+        errors: list[tuple[str, Exception]] = []
+
+        for strategy_name, strategy in strategies:
             try:
-                return self._analyze_with_chat_completions(title, website, paper_text)
-            except Exception as schema_error:
-                try:
-                    return self._analyze_with_json_object(title, website, paper_text)
-                except Exception as json_object_error:
-                    try:
-                        return self._analyze_with_plain_chat(title, website, paper_text)
-                    except Exception as plain_error:
-                        raise AnalysisError(
-                            f"OpenAI-compatible analysis failed. Responses error: {responses_error}; "
-                            f"Chat JSON schema error: {schema_error}; "
-                            f"Chat JSON object error: {json_object_error}; "
-                            f"Plain chat JSON error: {plain_error}"
-                        ) from plain_error
+                return strategy()
+            except Exception as exc:
+                errors.append((strategy_name, exc))
+
+        detail = "; ".join(f"{name} error: {error}" for name, error in errors)
+        raise AnalysisError(f"OpenAI-compatible analysis failed. {detail}") from errors[-1][1]
+
+    def _analyze_with_responses(self, prompt: str) -> dict[str, Any]:
+        response = self.client.responses.create(
+            model=self.model,
+            input=[
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "paper_ai_reader_analysis",
+                    "schema": ANALYSIS_SCHEMA,
+                    "strict": True,
+                }
+            },
+        )
+        self._emit_conversation("assistant", response.output_text)
+        return normalize_analysis(parse_analysis_json(response.output_text))
 
     def _analyze_with_chat_completions(
         self,
-        title: str,
-        website: str,
-        paper_text: str,
+        prompt: str,
     ) -> dict[str, Any]:
-        prompt = build_analysis_prompt(title, website, paper_text, self.user_prompt_template)
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -155,15 +153,13 @@ class PaperAnalyzer:
 
     def _analyze_with_json_object(
         self,
-        title: str,
-        website: str,
-        paper_text: str,
+        prompt: str,
     ) -> dict[str, Any]:
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
                 {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": build_analysis_prompt(title, website, paper_text, self.user_prompt_template)},
+                {"role": "user", "content": prompt},
             ],
             response_format={"type": "json_object"},
         )
@@ -175,15 +171,13 @@ class PaperAnalyzer:
 
     def _analyze_with_plain_chat(
         self,
-        title: str,
-        website: str,
-        paper_text: str,
+        prompt: str,
     ) -> dict[str, Any]:
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
                 {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": build_analysis_prompt(title, website, paper_text, self.user_prompt_template)},
+                {"role": "user", "content": prompt},
             ],
         )
         content = response.choices[0].message.content

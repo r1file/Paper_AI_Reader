@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -10,7 +11,7 @@ from paper_ai_reader.notion_service import NotionPaperService, PaperPage, PROCES
 
 
 LogCallback = Callable[[str], None]
-StatusCallback = Callable[[str], None]
+LOGGER = logging.getLogger(__name__)
 
 PIPELINE_TEXT = {
     "zh": {
@@ -85,43 +86,42 @@ PIPELINE_TEXT = {
         "skipped": "スキップ：{count}",
         "failed_count": "失敗：{count}",
     },
-    "en": {},
-}
-PIPELINE_TEXT["en"] = {
-    "initializing": "Initializing",
-    "querying": "Querying Notion database...",
-    "querying_status": "Querying Notion database",
-    "stop_requested": "Stop requested. Pipeline stopped before next paper.",
-    "stopped": "Stopped",
-    "processing": "\nProcessing: {title}",
-    "page_id": "Page ID: {page_id}",
-    "skipped_status": "Skipped: Status is {status}.",
-    "skipped_website": "Skipped: missing Website URL.",
-    "mark_reading_status": "Marking AI Reading: {title}",
-    "mark_reading": "Updating Status to AI Reading...",
-    "fetch_status": "Fetching paper: {title}",
-    "fetch": "Fetching paper content: {website}",
-    "fetch_fallback": "Website fetch failed; trying existing Notion page content...",
-    "fetch_fallback_ok": "Using existing Notion page content for analysis.",
-    "fetch_fallback_empty": "No readable text found in existing Notion page content.",
-    "analyze_status": "Analyzing paper: {title}",
-    "analyze": "Analyzing paper with AI model...",
-    "update_title_status": "Updating Notion title: {title}",
-    "update_title": "Updating page title: {title}",
-    "delete_status": "Deleting old page blocks: {title}",
-    "delete": "Deleting existing page blocks...",
-    "write_status": "Writing notes: {title}",
-    "write": "Writing structured notes to Notion...",
-    "done_status": "Marking AI Read Done: {title}",
-    "done_update": "Updating Status to AI Read Done...",
-    "done": "Done.",
-    "failed": "Failed: {error}",
-    "not_done": "Status was not updated to AI Read Done.",
-    "finished_status": "Finished",
-    "finished": "\nFinished.",
-    "processed": "Processed: {count}",
-    "skipped": "Skipped: {count}",
-    "failed_count": "Failed: {count}",
+    "en": {
+        "initializing": "Initializing",
+        "querying": "Querying Notion database...",
+        "querying_status": "Querying Notion database",
+        "stop_requested": "Stop requested. Pipeline stopped before next paper.",
+        "stopped": "Stopped",
+        "processing": "\nProcessing: {title}",
+        "page_id": "Page ID: {page_id}",
+        "skipped_status": "Skipped: Status is {status}.",
+        "skipped_website": "Skipped: missing Website URL.",
+        "mark_reading_status": "Marking AI Reading: {title}",
+        "mark_reading": "Updating Status to AI Reading...",
+        "fetch_status": "Fetching paper: {title}",
+        "fetch": "Fetching paper content: {website}",
+        "fetch_fallback": "Website fetch failed; trying existing Notion page content...",
+        "fetch_fallback_ok": "Using existing Notion page content for analysis.",
+        "fetch_fallback_empty": "No readable text found in existing Notion page content.",
+        "analyze_status": "Analyzing paper: {title}",
+        "analyze": "Analyzing paper with AI model...",
+        "update_title_status": "Updating Notion title: {title}",
+        "update_title": "Updating page title: {title}",
+        "delete_status": "Deleting old page blocks: {title}",
+        "delete": "Deleting existing page blocks...",
+        "write_status": "Writing notes: {title}",
+        "write": "Writing structured notes to Notion...",
+        "done_status": "Marking AI Read Done: {title}",
+        "done_update": "Updating Status to AI Read Done...",
+        "done": "Done.",
+        "failed": "Failed: {error}",
+        "not_done": "Status was not updated to AI Read Done.",
+        "finished_status": "Finished",
+        "finished": "\nFinished.",
+        "processed": "Processed: {count}",
+        "skipped": "Skipped: {count}",
+        "failed_count": "Failed: {count}",
+    },
 }
 
 
@@ -130,6 +130,20 @@ class PipelineResult:
     processed: int = 0
     skipped: int = 0
     failed: int = 0
+
+
+@dataclass(frozen=True)
+class PipelineProgress:
+    message: str
+    current: int = 0
+    total: int = 0
+    processed: int = 0
+    skipped: int = 0
+    failed: int = 0
+
+
+StatusPayload = str | PipelineProgress
+StatusCallback = Callable[[StatusPayload], None]
 
 
 class PipelineRunner:
@@ -147,6 +161,8 @@ class PipelineRunner:
         self.conversation_callback = conversation_callback
         self.should_stop = should_stop or (lambda: False)
         self.language = settings.ui_language if settings.ui_language in PIPELINE_TEXT else "en"
+        self.current_index = 0
+        self.total_count = 0
 
     def run(self) -> PipelineResult:
         result = PipelineResult()
@@ -166,10 +182,13 @@ class PipelineRunner:
 
         self._log(self._t("querying"))
         self._status(self._t("querying_status"))
-        for paper in notion.iter_pages():
+        papers = list(notion.iter_pages())
+        self.total_count = len(papers)
+        for index, paper in enumerate(papers, start=1):
+            self.current_index = index
             if self.should_stop():
                 self._log(self._t("stop_requested"))
-                self._status(self._t("stopped"))
+                self._status(self._t("stopped"), result)
                 break
 
             self._log(self._t("processing", title=paper.title))
@@ -179,23 +198,25 @@ class PipelineRunner:
                 result.skipped += 1
                 status_label = paper.status or "(empty)"
                 self._log(self._t("skipped_status", status=status_label))
+                self._status(self._t("skipped_status", status=status_label), result)
                 continue
 
             if not paper.website:
                 result.skipped += 1
                 self._log(self._t("skipped_website"))
+                self._status(self._t("skipped_website"), result)
                 continue
 
             try:
-                self._status(self._t("mark_reading_status", title=paper.title))
+                self._status(self._t("mark_reading_status", title=paper.title), result)
                 self._log(self._t("mark_reading"))
                 notion.mark_reading(paper.page_id)
 
-                self._status(self._t("fetch_status", title=paper.title))
+                self._status(self._t("fetch_status", title=paper.title), result)
                 self._log(self._t("fetch", website=paper.website))
                 paper_text = self._fetch_with_notion_fallback(notion, paper)
 
-                self._status(self._t("analyze_status", title=paper.title))
+                self._status(self._t("analyze_status", title=paper.title), result)
                 self._log(self._t("analyze"))
                 analysis = analyzer.analyze(
                     title=paper.title,
@@ -205,32 +226,35 @@ class PipelineRunner:
 
                 paper_title = analysis.get("paper_title")
                 if paper_title:
-                    self._status(self._t("update_title_status", title=paper_title))
+                    self._status(self._t("update_title_status", title=paper_title), result)
                     self._log(self._t("update_title", title=paper_title))
                     notion.update_title(paper.page_id, paper_title)
 
                 notion.update_keywords(paper.page_id, analysis.get("keywords", []))
 
-                self._status(self._t("delete_status", title=paper.title))
+                self._status(self._t("delete_status", title=paper.title), result)
                 self._log(self._t("delete"))
                 notion.delete_all_blocks(paper.page_id)
 
-                self._status(self._t("write_status", title=paper.title))
+                self._status(self._t("write_status", title=paper.title), result)
                 self._log(self._t("write"))
                 notion.write_analysis(paper.page_id, analysis, self.settings.prompt_language)
 
-                self._status(self._t("done_status", title=paper.title))
+                self._status(self._t("done_status", title=paper.title), result)
                 self._log(self._t("done_update"))
                 notion.mark_done(paper.page_id)
 
                 result.processed += 1
                 self._log(self._t("done"))
+                self._status(self._t("done_status", title=paper.title), result)
             except (FetchError, AnalysisError, Exception) as exc:
                 result.failed += 1
                 self._log(self._t("failed", error=exc))
                 self._log(self._t("not_done"))
+                self._status(self._t("failed", error=exc), result)
 
-        self._status(self._t("finished_status"))
+        self.current_index = self.total_count
+        self._status(self._t("finished_status"), result)
         self._log(self._t("finished"))
         self._log(self._t("processed", count=result.processed))
         self._log(self._t("skipped", count=result.skipped))
@@ -242,14 +266,25 @@ class PipelineRunner:
         return template.format(**kwargs)
 
     def _log(self, message: str) -> None:
+        LOGGER.info(message)
         if self.log_callback:
             self.log_callback(message)
-        else:
-            print(message)
 
-    def _status(self, message: str) -> None:
+    def _status(self, message: str, result: PipelineResult | None = None) -> None:
         if self.status_callback:
-            self.status_callback(message)
+            if result is None:
+                self.status_callback(message)
+                return
+            self.status_callback(
+                PipelineProgress(
+                    message=message,
+                    current=self.current_index,
+                    total=self.total_count,
+                    processed=result.processed,
+                    skipped=result.skipped,
+                    failed=result.failed,
+                )
+            )
 
     def _fetch_with_notion_fallback(self, notion: NotionPaperService, paper: PaperPage) -> str:
         try:

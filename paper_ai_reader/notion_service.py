@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from time import sleep
+from time import monotonic, sleep
 from typing import Any, Iterable
 
 from notion_client import Client
@@ -21,6 +21,7 @@ KEYWORDS_PROPERTY = "Keywords"
 RICH_TEXT_LIMIT = 2000
 MAX_APPEND_CHILDREN = 100
 NOTION_TIMEOUT_MS = 120_000
+NOTION_MIN_INTERVAL_SECONDS = 0.35
 DELETE_RETRIES = 3
 MAX_KEYWORDS = 6
 KEYWORD_TEXT_LIMIT = 80
@@ -41,14 +42,18 @@ class NotionPaperService:
         self.data_source_id: str | None = None
         self.status_property_type = "status"
         self.keywords_property_type: str | None = None
+        self._last_request_at = 0.0
         self._load_database_metadata()
 
     def _load_database_metadata(self) -> None:
-        database = self.notion.databases.retrieve(database_id=self.database_id)
+        database = self._notion_call(self.notion.databases.retrieve, database_id=self.database_id)
         data_sources = database.get("data_sources", [])
         if data_sources:
             self.data_source_id = data_sources[0]["id"]
-            metadata = self.notion.data_sources.retrieve(data_source_id=self.data_source_id)
+            metadata = self._notion_call(
+                self.notion.data_sources.retrieve,
+                data_source_id=self.data_source_id,
+            )
         else:
             metadata = database
 
@@ -72,12 +77,14 @@ class NotionPaperService:
                 query_args["start_cursor"] = start_cursor
 
             if self.data_source_id:
-                response = self.notion.data_sources.query(
+                response = self._notion_call(
+                    self.notion.data_sources.query,
                     data_source_id=self.data_source_id,
                     **query_args,
                 )
             else:
-                response = self.notion.databases.query(
+                response = self._notion_call(
+                    self.notion.databases.query,
                     database_id=self.database_id,
                     **query_args,
                 )
@@ -129,7 +136,7 @@ class NotionPaperService:
             if start_cursor:
                 args["start_cursor"] = start_cursor
 
-            response = self.notion.blocks.children.list(**args)
+            response = self._notion_call(self.notion.blocks.children.list, **args)
             for block in response.get("results", []):
                 text = extract_block_plain_text(block)
                 if text:
@@ -144,7 +151,7 @@ class NotionPaperService:
     def _delete_block_with_retries(self, block_id: str) -> None:
         for attempt in range(1, DELETE_RETRIES + 1):
             try:
-                self.notion.blocks.delete(block_id=block_id)
+                self._notion_call(self.notion.blocks.delete, block_id=block_id)
                 return
             except RequestTimeoutError:
                 if attempt == DELETE_RETRIES:
@@ -160,7 +167,7 @@ class NotionPaperService:
             if start_cursor:
                 args["start_cursor"] = start_cursor
 
-            response = self.notion.blocks.children.list(**args)
+            response = self._notion_call(self.notion.blocks.children.list, **args)
             block_ids.extend(block["id"] for block in response.get("results", []))
 
             if not response.get("has_more"):
@@ -172,7 +179,11 @@ class NotionPaperService:
     def write_analysis(self, page_id: str, analysis: dict[str, Any], language: str = "zh") -> None:
         blocks = build_analysis_blocks(analysis, language)
         for batch in chunked(blocks, MAX_APPEND_CHILDREN):
-            self.notion.blocks.children.append(block_id=page_id, children=batch)
+            self._notion_call(
+                self.notion.blocks.children.append,
+                block_id=page_id,
+                children=batch,
+            )
 
     def update_keywords(self, page_id: str, keywords: list[str]) -> None:
         if not self.keywords_property_type:
@@ -201,7 +212,8 @@ class NotionPaperService:
         else:
             return
 
-        self.notion.pages.update(
+        self._notion_call(
+            self.notion.pages.update,
             page_id=page_id,
             properties={KEYWORDS_PROPERTY: value},
         )
@@ -210,7 +222,8 @@ class NotionPaperService:
         clean_title = title.strip()
         if not clean_title:
             return
-        self.notion.pages.update(
+        self._notion_call(
+            self.notion.pages.update,
             page_id=page_id,
             properties={
                 TITLE_PROPERTY: {
@@ -231,10 +244,24 @@ class NotionPaperService:
         self.update_status(page_id, DONE_STATUS)
 
     def update_status(self, page_id: str, status_name: str) -> None:
-        self.notion.pages.update(
+        self._notion_call(
+            self.notion.pages.update,
             page_id=page_id,
             properties={STATUS_PROPERTY: {self.status_property_type: {"name": status_name}}},
         )
+
+    def _notion_call(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        self._throttle()
+        try:
+            return func(*args, **kwargs)
+        finally:
+            self._last_request_at = monotonic()
+
+    def _throttle(self) -> None:
+        elapsed = monotonic() - self._last_request_at
+        remaining = NOTION_MIN_INTERVAL_SECONDS - elapsed
+        if remaining > 0:
+            sleep(remaining)
 
 
 BLOCK_TEXT = {
